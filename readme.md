@@ -9,9 +9,8 @@ To package and run this application with node, you'll need to:
 * [Install Node](https://nodejs.org/en/) 
 * Clone this repository:
 
-      $ git clone https://github.com/Scytalelabs-official/CasperLabs-Uniswap-v2Subgraph.git
-      $ cd CasperLabs-Uniswap-v2Subgraph
-      $ git checkout listener 
+      $ git clone https://github.com/Scytalelabs-official/CasperLabs-EventListener.git
+      $ cd CasperLabs-EventListener
       
 
 ### Setup for First-time Users
@@ -19,5 +18,5 @@ To package and run this application with node, you'll need to:
 * npm install to install all the packages in the package.json file
 * npm start to run the server
 
-AWS Link: http://casperswapeventlistener-env.eba-hryscbuc.us-east-1.elasticbeanstalk.com/
+AWS Link: http://casperswaplistenerbackend-env.eba-rbumbt2m.us-east-1.elasticbeanstalk.com/
 
