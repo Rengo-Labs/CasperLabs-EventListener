@@ -3,11 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "start": "node ./bin/www"
+    "start": "node ./bin/www kafka-config.properties"
   },
   "engine": {
     "node": "16.14.0",
-    "npm":  "8.5.3"
+    "npm": "8.5.3"
   },
   "dependencies": {
     "graphql-request": "^3.6.1",
@@ -22,6 +22,8 @@
     "http-errors": "~1.6.3",
     "jade": "~1.11.0",
     "morgan": "~1.9.1",
-    "node-webhooks": "^1.4.2"
+    "node-webhooks": "^1.4.2",
+    "node-rdkafka": "^2.12.0",
+    "mongoose": "^6.2.8"
   }
 }

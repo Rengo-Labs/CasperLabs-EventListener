@@ -7,8 +7,17 @@ const { EventStream, EventName, CLValueBuilder, CLValueParsers, CLMap } = Casper
 var contractsPackageHashes=[];
 var PackageHashes=[];
 
+var event_Id = require("../models/eventId");
+var listener_event_Id_Data = require("../models/listener_eventsIdData");
+var producer = require("./producer"); 
+
 async function listener()
 {
+  let _id = await event_Id.findOne({id: '0'});
+  console.log('ID : ', _id);
+  console.log('Event Id  : ', _id.eventId); 
+  console.log('Integer Event Id : ', BigInt(_id.eventId));
+  let count = BigInt(_id.eventId);
   const es = new EventStream("http://159.65.118.250:9999/events/main");
   
   contractsPackageHashes =PackageHashes.map((h) => h.toLowerCase());
@@ -29,8 +38,15 @@ async function listener()
             const eventname = clValue.get(CLValueBuilder.string("event_type"));
             console.log("contractsPackageHashes array = ",contractsPackageHashes);
             if (hash && contractsPackageHashes.includes(hash.value())) {
-              acc = [{ name: eventname.value(), deployHash : event.body.DeployProcessed.deploy_hash, timestamp : event.body.DeployProcessed.timestamp, block_hash : event.body.DeployProcessed.block_hash, clValue }];
-              //console.log("events: ",event);
+              let graphqlName = await listener_event_Id_Data.findOne({eventName:eventname.value(),deployHash:event.body.DeployProcessed.deploy_hash});
+              console.log("Graphql Name : ", graphqlName);
+              console.log("Original deploy hash : ", event.body.DeployProcessed.deploy_hash);
+              if(graphqlName == null){ 
+                console.log('Count : ',count);
+
+            
+              acc = [{ eventId : ++count,name: eventname.value(), deployHash : event.body.DeployProcessed.deploy_hash, timestamp : event.body.DeployProcessed.timestamp, block_hash : event.body.DeployProcessed.block_hash, clValue }];
+              console.log("Updated count : ",acc[0].eventId);
               //console.log("event.body.DeployProcessed.execution_result: ",event.body.DeployProcessed.execution_result);
               console.log("event emmited : ",eventname.value());
               console.log("deployHash: ",acc[0].deployHash);
@@ -43,8 +59,25 @@ async function listener()
               let newData = JSON.parse(JSON.stringify(acc[0].clValue.data));
               console.log("newData: ",newData);
              
-              await triggerwebhook(acc[0].deployHash,miliseconds,acc[0].block_hash,acc[0].name,newData);
-              
+              await _id.updateOne({"eventId":acc[0].eventId.toString()});
+              const newInstance = new listener_event_Id_Data({
+                			eventId: acc[0].eventId,
+                      deployHash: acc[0].deployHash,
+                      eventName: acc[0].name,
+                      timestamp: miliseconds,
+                      block_hash: acc[0].block_hash,
+                      eventsdata: newData,
+                      status: "Pending"
+                    });
+		          await listener_event_Id_Data.create(newInstance);
+              producer.produce(newInstance.eventId, newInstance);
+
+              // await triggerwebhook(acc[0].deployHash,miliseconds,acc[0].block_hash,acc[0].name,newData);
+              }
+              else{
+                console.log("Event already existed : ", graphqlName);
+                console.log("Original deploy hash : ", event.body.DeployProcessed.deploy_hash)
+              }
             }
           }
         }
