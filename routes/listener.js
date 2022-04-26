@@ -38,7 +38,8 @@ async function listener()
             const eventname = clValue.get(CLValueBuilder.string("event_type"));
             console.log("contractsPackageHashes array = ",contractsPackageHashes);
             if (hash && contractsPackageHashes.includes(hash.value())) {
-              let graphqlName = await listener_event_Id_Data.findOne({eventName:eventname.value(),deployHash:event.body.DeployProcessed.deploy_hash});
+              //let graphqlName = await listener_event_Id_Data.findOne({eventName:eventname.value(),deployHash:event.body.DeployProcessed.deploy_hash});
+              let graphqlName = null;
               console.log("Graphql Name : ", graphqlName);
               console.log("Original deploy hash : ", event.body.DeployProcessed.deploy_hash);
               if(graphqlName == null){ 
