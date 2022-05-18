@@ -3,9 +3,27 @@ var express = require('express');
 var path = require('path');
 var cookieParser = require('cookie-parser');
 var logger = require('morgan');
-
+const mongoose = require("mongoose");
+require("dotenv").config();
+const listener=('/routes/listener');
 var indexRouter = require('./routes/index');
 var listenerRouter = require('./routes/listener');
+
+var DB_URL;
+
+DB_URL = process.env.DATABASE_URL_ONLINE;
+console.log("DB_URL : " + DB_URL);
+
+const connect = mongoose.connect(DB_URL);
+// connecting to the database
+connect.then(
+  (db) => {
+    console.log("Connected to the MongoDB server\n\n");
+  },
+  (err) => {
+    console.log(err);
+  }
+);
 
 var app = express();
 

@@ -1,14 +1,31 @@
 var express = require('express');
 var router = express.Router();
 var Hook = require("./hook");
+require("dotenv").config();
 const CasperSDK = require("casper-js-sdk");
-const axios = require('axios').default;
 const { EventStream, EventName, CLValueBuilder, CLValueParsers, CLMap } = CasperSDK;
+var listenerEventsData = require("../models/listenerEventsData");
+var packageHashesData = require("../models/packageHashes");
 var contractsPackageHashes=[];
 var PackageHashes=[];
 
+async function addPackageHashes()
+{
+  let Hashes=await packageHashesData.findOne({id:"0"});
+  if(Hashes==null)
+  {
+    console.log("There is no PackageHash stored in database")
+  }
+  else{
+    PackageHashes=Hashes.packageHashes;
+  }
+}
+
 async function listener()
 {
+  await addPackageHashes();
+  console.log("packagesHashes :",PackageHashes);
+
   const es = new EventStream("http://159.65.118.250:9999/events/main");
   
   contractsPackageHashes =PackageHashes.map((h) => h.toLowerCase());
@@ -30,8 +47,6 @@ async function listener()
             console.log("contractsPackageHashes array = ",contractsPackageHashes);
             if (hash && contractsPackageHashes.includes(hash.value())) {
               acc = [{ name: eventname.value(), deployHash : event.body.DeployProcessed.deploy_hash, timestamp : event.body.DeployProcessed.timestamp, block_hash : event.body.DeployProcessed.block_hash, clValue }];
-              //console.log("events: ",event);
-              //console.log("event.body.DeployProcessed.execution_result: ",event.body.DeployProcessed.execution_result);
               console.log("event emmited : ",eventname.value());
               console.log("deployHash: ",acc[0].deployHash);
               console.log("timestamp: ",acc[0].timestamp);
@@ -42,9 +57,24 @@ async function listener()
 
               let newData = JSON.parse(JSON.stringify(acc[0].clValue.data));
               console.log("newData: ",newData);
-             
-              await triggerwebhook(acc[0].deployHash,miliseconds,acc[0].block_hash,acc[0].name,newData);
-              
+
+              let listenerEventsDataResult=await listenerEventsData.findOne({eventName:acc[0].name,deployHash:acc[0].deployHash});
+              if(listenerEventsDataResult!=null)
+              {
+                console.log(acc[0].name+ " Event exists already, deployHash = " + acc[0].deployHash);
+              }
+              else{
+                let newInstance = new listenerEventsData({
+                  deployHash: acc[0].deployHash,
+                  eventName: acc[0].name,
+                  timestamp: miliseconds,
+                  block_hash: acc[0].block_hash,
+                  eventsdata: newData
+                });
+                await listenerEventsData.create(newInstance);
+  
+                await triggerwebhook(acc[0].deployHash,miliseconds,acc[0].block_hash,acc[0].name,newData);
+              }
             }
           }
         }
@@ -56,6 +86,7 @@ async function listener()
   es.start();
   console.log("Listener initiated...");
 }
+listener();
 
 async function triggerwebhook(deployHash,timestamp,blockHash,eventname,eventdata)
 {
@@ -99,24 +130,6 @@ router.route("/initiateListener").post(async function (req, res, next) {
     }
 })
 
-router.route("/remindListener").get(async function (req, res, next) {
-  try {
-
-    return res.status(200).json({
-      success: true,
-      message: "Listener Reminded Successfully.",
-      status: "Listening...",
-    });
-
-  } catch (error) {
-    console.log("error (try-catch) : " + error);
-    return res.status(500).json({
-      success: false,
-      err: error,
-    });
-  }
-})
-
 router.route("/addcontractPackageHash").post(async function (req, res, next) {
     try {
 
@@ -141,6 +154,35 @@ router.route("/addcontractPackageHash").post(async function (req, res, next) {
         err: error,
       });
     }
+});
+
+router.route("/addcontractPackageHashesInDatabase").post(async function (req, res, next) {
+  try {
+
+    if(!req.body.packageHashes)
+    {
+      return res.status(400).json({
+        success: false,
+        message: "There was no contractPackageHash specified in the req body.",
+      });
+    }
+    let newInstance = new packageHashesData({
+     id: "0",
+     packageHashes:req.body.packageHashes
+    });
+    await packageHashesData.create(newInstance);
+    return res.status(200).json({
+      success: true,
+      message: "contractPackageHashes added Successfully in the database. ",
+    });
+
+  } catch (error) {
+    console.log("error (try-catch) : " + error);
+    return res.status(500).json({
+      success: false,
+      err: error,
+    });
+  }
 });
 
 module.exports = router;
