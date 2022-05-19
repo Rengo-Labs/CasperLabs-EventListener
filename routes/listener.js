@@ -148,7 +148,7 @@ router
         });
       }
       if (PackageHashes.includes(req.body.packageHash)) {
-        return res.status(400).json({
+        return res.status(406).json({
           success: false,
           message:
             "This packageHash " +
@@ -196,7 +196,7 @@ router
           message: "PackageHashes added Successfully in the database. ",
         });
       } else {
-        return res.status(400).json({
+        return res.status(406).json({
           success: false,
           message: "PackageHashes already added in the database. ",
         });
@@ -222,7 +222,7 @@ router
       }
       let packageHashesResult = await packageHashesData.findOne({ id: "0" });
       if (packageHashesResult == null) {
-        return res.status(400).json({
+        return res.status(404).json({
           success: false,
           message: "PackageHashes not added in the database.",
         });
