@@ -6,66 +6,66 @@ const bcrypt = require("bcrypt");
 const { BCRYPT_SALT_ROUNDS } = require("../config/bcrypt");
 const jwtUtil = require("../utils/jwt");
 
-router.post("/adminsignup", async function (req, res, next) {
-  try {
+// router.post("/adminsignup", async function (req, res, next) {
+//   try {
 
-    if (!req.body.username) {
-      return res.status(400).json({
-        success: false,
-        message: "username not found in the request body!",
-      });
-    }
-    if (!req.body.password) {
-        return res.status(400).json({
-        success: false,
-        message: "Password not found in the request body!",
-        });
-    }
+//     if (!req.body.username) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "username not found in the request body!",
+//       });
+//     }
+//     if (!req.body.password) {
+//         return res.status(400).json({
+//         success: false,
+//         message: "Password not found in the request body!",
+//         });
+//     }
 
-    var usernamecheck = await AdminModel.findOne({ username: req.body.username });
-    if (usernamecheck) {
-      return res.status(400).json({
-        success: false,
-        message: "This Admin already exists.",
-      });
-    }
+//     var usernamecheck = await AdminModel.findOne({ username: req.body.username });
+//     if (usernamecheck) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "This Admin already exists.",
+//       });
+//     }
 
-    if (req.body.password.length < 4) {
-      return res.status(400).json({
-        success: false,
-        message: "Password length must be greater than 4!",
-      });
-    }
+//     if (req.body.password.length < 4) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Password length must be greater than 4!",
+//       });
+//     }
 
-    const hashedPassword = await bcrypt.hash(
-      req.body.password,
-      BCRYPT_SALT_ROUNDS
-    );
+//     const hashedPassword = await bcrypt.hash(
+//       req.body.password,
+//       BCRYPT_SALT_ROUNDS
+//     );
 
-    req.body.password = hashedPassword;
+//     req.body.password = hashedPassword;
 
-    var newadmin = new AdminModel({
-        username: req.body.username,
-        password: req.body.password
-    });
+//     var newadmin = new AdminModel({
+//         username: req.body.username,
+//         password: req.body.password
+//     });
 
-    await AdminModel.create(newadmin);
-    console.log("new admin created");
+//     await AdminModel.create(newadmin);
+//     console.log("new admin created");
 
-    return res.status(200).json({
-      success: true,
-      message: "Admin Successfully Signed-up",
-    });
+//     return res.status(200).json({
+//       success: true,
+//       message: "Admin Successfully Signed-up",
+//     });
 
-  } catch (error) {
-    console.log("error (try-catch) : " + error);
-    return res.status(500).json({
-      success: false,
-      err: error,
-    });
-  }
+//   } catch (error) {
+//     console.log("error (try-catch) : " + error);
+//     return res.status(500).json({
+//       success: false,
+//       err: error,
+//     });
+//   }
   
-});
+// });
 
 router.post("/adminlogin", async function (req, res, next) {
   try {
