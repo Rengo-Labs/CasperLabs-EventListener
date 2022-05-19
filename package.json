@@ -10,6 +10,7 @@
     "npm": "8.10.0"
   },
   "dependencies": {
+    "bcrypt": "^5.0.1",
     "casper-js-sdk": "^2.7.2",
     "cookie-parser": "~1.4.4",
     "debug": "~2.6.9",
@@ -20,8 +21,11 @@
     "graphql-request": "^3.6.1",
     "http-errors": "~1.6.3",
     "jade": "~1.11.0",
+    "jsonwebtoken": "^8.5.1",
     "mongoose": "^6.2.8",
     "morgan": "~1.9.1",
-    "node-webhooks": "^1.4.2"
+    "node-webhooks": "^1.4.2",
+    "passport": "^0.4.1",
+    "passport-jwt": "^4.0.0"
   }
 }

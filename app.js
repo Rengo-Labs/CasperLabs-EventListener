@@ -5,9 +5,24 @@ var cookieParser = require('cookie-parser');
 var logger = require('morgan');
 const mongoose = require("mongoose");
 require("dotenv").config();
-const listener=('/routes/listener');
+
+//routers
 var indexRouter = require('./routes/index');
+var adminRouter = require('./routes/adminroutes');
 var listenerRouter = require('./routes/listener');
+
+var app = express();
+
+// view engine setup
+app.set('views', path.join(__dirname, 'views'));
+app.set('view engine', 'jade');
+
+app.use(logger('dev'));
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+app.use(cookieParser());
+app.use(express.static(path.join(__dirname, 'public')));
+
 
 var DB_URL;
 
@@ -25,19 +40,8 @@ connect.then(
   }
 );
 
-var app = express();
-
-// view engine setup
-app.set('views', path.join(__dirname, 'views'));
-app.set('view engine', 'jade');
-
-app.use(logger('dev'));
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
-app.use(cookieParser());
-app.use(express.static(path.join(__dirname, 'public')));
-
 app.use('/', indexRouter);
+app.use('/', adminRouter);
 app.use('/listener', listenerRouter);
 
 // catch 404 and forward to error handler
