@@ -8,7 +8,6 @@ require("dotenv").config();
 
 var indexRouter = require('./routes/index');
 var listenerRouter = require('./routes/listener');
-var MissingEvent = require("./routes/listener_singleEvent");
 
 
 var app = express();
@@ -25,7 +24,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/', indexRouter);
 app.use('/listener', listenerRouter);
-app.use('/listener', MissingEvent);
 
 var DB_URL;
 

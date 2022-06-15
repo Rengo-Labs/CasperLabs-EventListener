@@ -45,7 +45,7 @@ var produce = async function produceExample(_eventId, event) {
   // let configPath = path.dirname(file);
   const config = await configFromPath(configPath);
 
-  let topic = "Graphql";
+  let topic = "CasperSwap";
 
   // let users = [ "eabara", "jsmith", "sgarcia", "jbernard", "htanaka", "awalther" ];
   // let items = [ "book", "alarm clock", "t-shirts", "gift card", "batteries" ];
