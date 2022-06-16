@@ -3,18 +3,19 @@ var express = require('express');
 var path = require('path');
 var cookieParser = require('cookie-parser');
 var logger = require('morgan');
-const mongoose = require("mongoose");
 require("dotenv").config();
+const mongoose = require("mongoose");
 
+//importing all routers
 var indexRouter = require('./routes/index');
+var adminRouter = require('./routes/adminroutes');
 var listenerRouter = require('./routes/listener');
-
 
 var app = express();
 
 // view engine setup
 app.set('views', path.join(__dirname, 'views'));
-app.set('view engine', 'jade');
+app.set('view engine', 'pug');
 
 app.use(logger('dev'));
 app.use(express.json());
@@ -22,9 +23,8 @@ app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.use('/', indexRouter);
-app.use('/listener', listenerRouter);
 
+// Database Connection
 var DB_URL;
 
 DB_URL = process.env.DATABASE_URL_ONLINE;
@@ -40,6 +40,11 @@ connect.then(
     console.log(err);
   }
 );
+
+//Defining all routes
+app.use('/', indexRouter);
+app.use('/', adminRouter);
+app.use('/listener', listenerRouter);
 
 
 // catch 404 and forward to error handler

@@ -4,7 +4,6 @@ var Schema = mongoose.Schema;
 
 const eventSchema = new Schema({
 
-    //transaction hash + "-" + index in mints Transaction array
     id:{
       type:String,
       default:'0'

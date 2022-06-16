@@ -2,17 +2,45 @@ var express = require('express');
 var router = express.Router();
 const CasperSDK = require("casper-js-sdk");
 const { EventStream, EventName, CLValueBuilder, CLValueParsers, CLMap, CasperServiceByJsonRPC, } = CasperSDK;
+
+// importing models
+var event_Id = require("../models/eventId");
+var listener_event_Id_Data = require("../models/listener_eventsIdData");
+var packageHashesData = require("../models/packageHashes");
+
+//importing kafka producer
+var producer = require("./producer"); 
+
+// authoriztion libraries and imports
+const auth = require("../middlewares/auth");
+const passport = require("passport");
+const verifyAdmin = passport.authenticate("jwt", {
+  session: false,
+});
+
+//for global use
 var contractsPackageHashes=[];
 var PackageHashes=[];
 
-var event_Id = require("../models/eventId");
-var listener_event_Id_Data = require("../models/listener_eventsIdData");
-var producer = require("./producer"); 
-
+// creating a connection to a node for RPC API endpoints
 const casperService = new CasperServiceByJsonRPC(
   "http://159.65.118.250:7777/rpc"
 );
 
+//to retrieve packageHashes from database and add them to the listener
+async function addPackageHashes() {
+  let Hashes = await packageHashesData.findOne({ id: "0" });
+  if (Hashes == null) {
+    console.log("There is no PackageHash stored in database");
+  } else {
+    PackageHashes = Hashes.packageHashes;
+  }
+}
+
+//listener main function
+//This function looks for every Processed deploy comes to subscriped node
+//then filter those deploys for events if there packageHash matches to our
+//contract's packageHases
 
 async function listener()
 {
@@ -21,6 +49,10 @@ async function listener()
   console.log('Event Id  : ', _id.eventId); 
   console.log('Integer Event Id : ', BigInt(_id.eventId));
   let count = BigInt(_id.eventId);
+
+  await addPackageHashes();
+  console.log("packagesHashes :", PackageHashes);
+
   const es = new EventStream("http://159.65.118.250:9999/events/main");
   
   contractsPackageHashes =PackageHashes.map((h) => h.toLowerCase());
@@ -83,6 +115,7 @@ async function listener()
   console.log("Listener initiated...");
 }
 
+// to get the latest block height of a node
 async function getLatestBlockHeight() {
   const latestBlockInfoResult = await casperService.getLatestBlockInfo();
   console.log(
@@ -91,8 +124,8 @@ async function getLatestBlockHeight() {
   );
   return latestBlockInfoResult.block.header.height;
 }
-//getLatestBlockHeight();
 
+// to get block data of a node against block height
 async function getblockData(height) {
   const blockInfoByHeightResult = await casperService.getBlockInfoByHeight(
     height
@@ -105,12 +138,14 @@ async function getblockData(height) {
   return blockInfoByHeightResult;
 }
 
+// to get the deploy Data of a node against deployHash
 async function getdeployData(deployHash) {
   const deployInfoResult = await casperService.getDeployInfo(deployHash);
   console.log("deployInfoResult: ", deployInfoResult);
   return deployInfoResult;
 }
 
+//This function replay Events (which being missed when listener backend goes down) upon restart the listener server
 async function traverseAllBlocksAndDeploys() {
   
   let _id = await event_Id.findOne({id: '0'});
@@ -119,6 +154,9 @@ async function traverseAllBlocksAndDeploys() {
   console.log('Integer Event Id : ', BigInt(_id.eventId));
   let count = BigInt(_id.eventId);
   
+  await addPackageHashes();
+  console.log("packagesHashes :", PackageHashes);
+
   contractsPackageHashes =PackageHashes.map((h) => h.toLowerCase());
 
   let currentBlockHeight = 692110;
@@ -189,35 +227,7 @@ async function traverseAllBlocksAndDeploys() {
   }
 }
 
-
-router.route("/initiateListener").post(async function (req, res, next) {
-    try {
-
-      if(!req.body.contractPackageHashes)
-      {
-        return res.status(400).json({
-          success: false,
-          message: "Listener did not initiated, There was no contractPackageHashes specified in the req body.",
-        });
-      }
-      PackageHashes=req.body.contractPackageHashes;
-      listener();
-
-      return res.status(200).json({
-        success: true,
-        message: "Listener Initiated Successfully.",
-        status: "Listening...",
-      });
-
-    } catch (error) {
-      console.log("error (try-catch) : " + error);
-      return res.status(500).json({
-        success: false,
-        err: error,
-      });
-    }
-})
-
+// This endpoint is just for testing the replayEventsFeature
 router.route("/replayEvents").post(async function (req, res, next) {
   try {
 
@@ -245,23 +255,35 @@ router.route("/replayEvents").post(async function (req, res, next) {
   }
 })
 
-router.route("/addcontractPackageHash").post(async function (req, res, next) {
+// This endpoint is to add a new packageHash to the listener
+router
+  .route("/addPackageHashToListener")
+  .post(auth.verifyToken, verifyAdmin, async function (req, res, next) {
     try {
-
-      if(!req.body.contractPackageHash)
-      {
+      if (!req.body.packageHash) {
         return res.status(400).json({
           success: false,
-          message: "There was no contractPackageHash specified in the req body.",
+          message: "There was no packageHash specified in the req body.",
         });
       }
-      PackageHashes.push(req.body.contractPackageHash);
-      contractsPackageHashes =PackageHashes.map((h) => h.toLowerCase());
-      return res.status(200).json({
-        success: true,
-        message: "contractPackageHash "+ req.body.contractPackageHash +" added to the listener.",
-      });
-
+      if (PackageHashes.includes(req.body.packageHash)) {
+        return res.status(406).json({
+          success: false,
+          message:
+            "This packageHash " +
+            req.body.packageHash +
+            " already added to the listener.",
+        });
+      } else {
+        PackageHashes.push(req.body.packageHash);
+        contractsPackageHashes = PackageHashes.map((h) => h.toLowerCase());
+        console.log("contractsPackageHashes: ", contractsPackageHashes);
+        return res.status(200).json({
+          success: true,
+          message:
+            "PackageHash " + req.body.packageHash + " added to the listener.",
+        });
+      }
     } catch (error) {
       console.log("error (try-catch) : " + error);
       return res.status(500).json({
@@ -271,4 +293,79 @@ router.route("/addcontractPackageHash").post(async function (req, res, next) {
     }
 });
 
+//This endpoint is to add all the packageHashes in the database
+router
+  .route("/addPackageHashesInDatabase")
+  .post(auth.verifyToken, verifyAdmin, async function (req, res, next) {
+    try {
+      if (!req.body.packageHashes) {
+        return res.status(400).json({
+          success: false,
+          message: "There was no packageHashes specified in the req body.",
+        });
+      }
+      let packageHashesResult = await packageHashesData.findOne({ id: "0" });
+      if (packageHashesResult == null) {
+        let newInstance = new packageHashesData({
+          id: "0",
+          packageHashes: req.body.packageHashes,
+        });
+        await packageHashesData.create(newInstance);
+        return res.status(200).json({
+          success: true,
+          message: "PackageHashes added Successfully in the database. ",
+        });
+      } else {
+        return res.status(406).json({
+          success: false,
+          message: "PackageHashes already added in the database. ",
+        });
+      }
+    } catch (error) {
+      console.log("error (try-catch) : " + error);
+      return res.status(500).json({
+        success: false,
+        err: error,
+      });
+    }
+});
+
+//This endpoint is to update the packageHashes in the database
+router
+  .route("/updatePackageHashesInDatabase")
+  .post(auth.verifyToken, verifyAdmin, async function (req, res, next) {
+    try {
+      if (!req.body.packageHashes) {
+        return res.status(400).json({
+          success: false,
+          message: "There was no packageHashes specified in the req body.",
+        });
+      }
+      let packageHashesResult = await packageHashesData.findOne({ id: "0" });
+      if (packageHashesResult == null) {
+        return res.status(404).json({
+          success: false,
+          message: "PackageHashes not added in the database.",
+        });
+      } else {
+        const filter = { id: "0" };
+        const update = { packageHashes: req.body.packageHashes };
+        let updatedData = await packageHashesData.findOneAndUpdate(
+          filter,
+          update
+        );
+        console.log("updated packageHashes : ", updatedData);
+        return res.status(200).json({
+          success: true,
+          message: "PackageHashes updated Successfully in the database. ",
+        });
+      }
+    } catch (error) {
+      console.log("error (try-catch) : " + error);
+      return res.status(500).json({
+        success: false,
+        err: error,
+      });
+    }
+});
 module.exports = router;
