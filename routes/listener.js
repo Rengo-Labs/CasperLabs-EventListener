@@ -3,8 +3,10 @@ var router = express.Router();
 const CasperSDK = require("casper-js-sdk");
 const { EventStream, EventName, CLValueBuilder, CLValueParsers, CLMap, CasperServiceByJsonRPC, } = CasperSDK;
 
+//for all env variables imports
+require("dotenv").config();
+
 // importing models
-var event_Id = require("../models/eventId");
 var listener_event_Id_Data = require("../models/listener_eventsIdData");
 var packageHashesData = require("../models/packageHashes");
 
@@ -18,13 +20,16 @@ const verifyAdmin = passport.authenticate("jwt", {
   session: false,
 });
 
+//Connect to Redis
+var redis = require('../connectRedis');
+
 //for global use
 var contractsPackageHashes=[];
 var PackageHashes=[];
 
 // creating a connection to a node for RPC API endpoints
 const casperService = new CasperServiceByJsonRPC(
-  "http://159.65.118.250:7777/rpc"
+  process.env.JSON_RPC_API_NODE_URL
 );
 
 //to retrieve packageHashes from database and add them to the listener
@@ -44,16 +49,11 @@ async function addPackageHashes() {
 
 async function listener()
 {
-  let _id = await event_Id.findOne({id: '0'});
-  console.log('ID : ', _id);
-  console.log('Event Id  : ', _id.eventId); 
-  console.log('Integer Event Id : ', BigInt(_id.eventId));
-  let count = BigInt(_id.eventId);
-
+  
   await addPackageHashes();
   console.log("packagesHashes :", PackageHashes);
 
-  const es = new EventStream("http://159.65.118.250:9999/events/main");
+  const es = new EventStream(process.env.EVENTSTREAM_URL);
   
   contractsPackageHashes =PackageHashes.map((h) => h.toLowerCase());
 
@@ -74,34 +74,26 @@ async function listener()
             console.log("contractsPackageHashes array = ",contractsPackageHashes);
             if (hash && contractsPackageHashes.includes(hash.value())) {
               
-              console.log("Original deploy hash : ", event.body.DeployProcessed.deploy_hash);
-              console.log('Count : ',count);
+              // converting events information into JSON form
+              acc = [{ 
+                  deployHash : event.body.DeployProcessed.deploy_hash,
+                  timestamp : event.body.DeployProcessed.timestamp,
+                  block_hash : event.body.DeployProcessed.block_hash,
+                  eventName: eventname.value(),
+                  status: "Pending",
+                  eventsdata: JSON.parse(JSON.stringify(clValue.data)),
+              }];
 
-              acc = [{ eventId : ++count,name: eventname.value(), deployHash : event.body.DeployProcessed.deploy_hash, timestamp : event.body.DeployProcessed.timestamp, block_hash : event.body.DeployProcessed.block_hash, clValue }];
-              console.log("Updated count : ",acc[0].eventId);
-              console.log("event emmited : ",eventname.value());
-              console.log("deployHash: ",acc[0].deployHash);
-              console.log("timestamp: ",acc[0].timestamp);
-              var date = new Date(acc[0].timestamp);
-              var miliseconds = date.getTime();
-              console.log("timestamp in miliseconds: ",miliseconds);
-              console.log("block_hash: ",acc[0].block_hash);
+              //displaying event all data
+              console.log("Event Received: ",eventname.value());
+              console.log("DeployHash: ",acc[0].deployHash);
+              console.log("Timestamp: ",acc[0].timestamp);
+              console.log("Block Hash: ",acc[0].block_hash);
+              console.log("Status: ",acc[0].status);
+              console.log("Data: ",acc[0].eventsdata);
 
-              let newData = JSON.parse(JSON.stringify(acc[0].clValue.data));
-              console.log("newData: ",newData);
-             
-              await _id.updateOne({"eventId":acc[0].eventId.toString()});
-              const newInstance = new listener_event_Id_Data({
-                			eventId: acc[0].eventId,
-                      deployHash: acc[0].deployHash,
-                      eventName: acc[0].name,
-                      timestamp: miliseconds,
-                      block_hash: acc[0].block_hash,
-                      eventsdata: newData,
-                      status: "Pending"
-              });
-		          await listener_event_Id_Data.create(newInstance);
-              producer.produce(newInstance.eventId, newInstance);
+              //push event to redis queue
+              redis.client.RPUSH(acc[0]);
               
             }
           }
@@ -148,12 +140,6 @@ async function getdeployData(deployHash) {
 //This function replay Events (which being missed when listener backend goes down) upon restart the listener server
 async function traverseAllBlocksAndDeploys() {
   
-  let _id = await event_Id.findOne({id: '0'});
-  console.log('ID : ', _id);
-  console.log('Event Id  : ', _id.eventId); 
-  console.log('Integer Event Id : ', BigInt(_id.eventId));
-  let count = BigInt(_id.eventId);
-  
   await addPackageHashes();
   console.log("packagesHashes :", PackageHashes);
 
@@ -187,35 +173,27 @@ async function traverseAllBlocksAndDeploys() {
                 console.log("contractsPackageHashes array = ",contractsPackageHashes);
                 if (hash && contractsPackageHashes.includes(hash.value())) {
                   
-                  console.log("Original deploy hash : ", deployHashes[j]);
-                  console.log('Count : ',count);
-    
-                  acc = [{ eventId : ++count,name: eventname.value(), deployHash : deployHashesResult.deploy.hash, timestamp : deployHashesResult.deploy.header.timestamp, block_hash : deployHashesResult.execution_results[0].block_hash, clValue }];
-                  console.log("Updated count : ",acc[0].eventId);
-                  console.log("event emmited : ",eventname.value());
-                  console.log("deployHash: ",acc[0].deployHash);
-                  console.log("timestamp: ",acc[0].timestamp);
-                  var date = new Date(acc[0].timestamp);
-                  var miliseconds = date.getTime();
-                  console.log("timestamp in miliseconds: ",miliseconds);
-                  console.log("block_hash: ",acc[0].block_hash);
-    
-                  let newData = JSON.parse(JSON.stringify(acc[0].clValue.data));
-                  console.log("newData: ",newData);
-                 
-                  await _id.updateOne({"eventId":acc[0].eventId.toString()});
-                  const newInstance = new listener_event_Id_Data({
-                          eventId: acc[0].eventId,
-                          deployHash: acc[0].deployHash,
-                          eventName: acc[0].name,
-                          timestamp: miliseconds,
-                          block_hash: acc[0].block_hash,
-                          eventsdata: newData,
-                          status: "Pending"
-                  });
-                  await listener_event_Id_Data.create(newInstance);
-                  producer.produce(newInstance.eventId, newInstance);
-                  
+                    // converting events information into JSON form
+                    acc = [{
+                      deployHash : deployHashesResult.deploy.hash,
+                      timestamp : deployHashesResult.deploy.header.timestamp,
+                      block_hash : deployHashesResult.execution_results[0].block_hash,
+                      eventName: eventname.value(),
+                      status: "Pending",
+                      eventsdata: JSON.parse(JSON.stringify(clValue.data)),
+                    }];
+
+                    //displaying event all data
+                    console.log("Event Received: ",eventname.value());
+                    console.log("DeployHash: ",acc[0].deployHash);
+                    console.log("Timestamp: ",acc[0].timestamp);
+                    console.log("Block Hash: ",acc[0].block_hash);
+                    console.log("Status: ",acc[0].status);
+                    console.log("Data: ",acc[0].eventsdata);
+
+                    //push event to redis queue
+                    redis.client.RPUSH(acc[0]);
+
                 }
               }
             }

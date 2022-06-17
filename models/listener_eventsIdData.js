@@ -8,9 +8,6 @@ const eventIdDataSchema = new Schema({
 	eventName: {
 		type: String,
 	},
-	eventId: {
-		type: String,
-	},
 	status:{
 		type:String,
 	},
