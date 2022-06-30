@@ -103,7 +103,7 @@ async function listener()
 
               //push event to redis queue
               redis.client.RPUSH(process.env.LISTENERREDISQUEUE,serialize({obj: acc[0]}));
-              
+              console.log("Event pushed to queue.");
             }
           }
         }
@@ -120,25 +120,33 @@ listener();
 
 async function pushEventsToKafka()
 {
-   //check redis queue length
-   if(redis.client.LLEN(process.env.LISTENERREDISQUEUE)>0)
-   {
-      queuePopFlag=1;
-      let popValue=await redis.client.LPOP(process.env.LISTENERREDISQUEUE);
-      console.log("Event Poped: ", (deserialize(popValue)).obj);
+  if(queuePopFlag==0)
+  {
+    //check redis queue length
+    if(redis.client.LLEN(process.env.LISTENERREDISQUEUE)>0)
+    {
+        queuePopFlag=1;
+        let popValue=await redis.client.LPOP(process.env.LISTENERREDISQUEUE);
+        let deserializedPopedValue=(deserialize(popValue)).obj;
+        console.log("Event Poped from queue: ", deserializedPopedValue);
 
-      //push poped Event to kafka
-      await producer.produceEvents(popValue);
-      queuePopFlag=0;
-   }
-   else{
-     console.log("There are currently no Events in the Redis queue...");
-     return;
-   }
+        //push poped Event to kafka
+        await producer.produceEvents(deserializedPopedValue);
+        queuePopFlag=0;
+    }
+    else{
+      console.log("There are currently no Events in the Redis queue...");
+      return;
+    }
+  }
+  else{
+    console.log("Already, one Event is producing in kafka...");
+    return;
+  }
 }
 
 setInterval(() => {
-  pushEventsToKafka();
+    pushEventsToKafka();
 }, 2000);
 
 
