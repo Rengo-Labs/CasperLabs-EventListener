@@ -10,7 +10,7 @@ const kafka=require("./kafka");
 //creating a producer
 const producer= kafka.producer({ createPartitioner: Partitioners.LegacyPartitioner });
 
-async function produceEvents(key,data)
+async function produceEvents(data)
 {
     try {
         //connection a producer
@@ -18,9 +18,6 @@ async function produceEvents(key,data)
         const responses = await producer.send({
           topic: process.env.TOPIC,
           messages: [{
-            // Name of the published package as key, to make sure that we process events in order
-            key: key,
-    
             // The message value is just bytes to Kafka, so we need to serialize our JavaScript
             // object to a JSON string. Other serialization methods like Avro are available.
             value: JSON.stringify(data)
@@ -29,7 +26,6 @@ async function produceEvents(key,data)
     
         //console.log('Producer Response', { responses });
         console.log('Published Event', {
-            key: key,
             value: data
         })
         //disconnecting producer

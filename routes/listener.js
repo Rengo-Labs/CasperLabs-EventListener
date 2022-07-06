@@ -122,8 +122,11 @@ async function pushEventsToKafka()
 {
   if(queuePopFlag==0)
   {
+    
+    let redisLength=await redis.client.LLEN(process.env.LISTENERREDISQUEUE);
+    //console.log("Redis queue length: ",redisLength);
     //check redis queue length
-    if(redis.client.LLEN(process.env.LISTENERREDISQUEUE)>0)
+    if(redisLength>0)
     {
         queuePopFlag=1;
         let popValue=await redis.client.LPOP(process.env.LISTENERREDISQUEUE);
