@@ -125,16 +125,18 @@ async function pushEventsToKafka()
     
     let redisLength=await redis.client.LLEN(process.env.LISTENERREDISQUEUE);
     //console.log("Redis queue length: ",redisLength);
+    
     //check redis queue length
     if(redisLength>0)
     {
         queuePopFlag=1;
-        let popValue=await redis.client.LPOP(process.env.LISTENERREDISQUEUE);
-        let deserializedPopedValue=(deserialize(popValue)).obj;
-        console.log("Event Poped from queue: ", deserializedPopedValue);
+        let headValue=await redis.client.LRANGE(process.env.LISTENERREDISQUEUE,0,0);
+        let deserializedHeadValue=(deserialize(headValue)).obj;
+        console.log("Event Read from queue's head: ", deserializedHeadValue);
 
         //push poped Event to kafka
-        await producer.produceEvents(deserializedPopedValue);
+        await producer.produceEvents(deserializedHeadValue);
+        await redis.client.LPOP(process.env.LISTENERREDISQUEUE);
         queuePopFlag=0;
     }
     else{

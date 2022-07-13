@@ -8,7 +8,13 @@ const { Partitioners } = require('kafkajs');
 const kafka=require("./kafka"); 
 
 //creating a producer
-const producer= kafka.producer({ createPartitioner: Partitioners.LegacyPartitioner });
+const producer= kafka.producer({ 
+  createPartitioner: Partitioners.LegacyPartitioner,
+  allowAutoTopicCreation: false,
+  transactionTimeout: 30000,
+  idempotence:true,
+  acks:-1
+});
 
 async function produceEvents(data)
 {

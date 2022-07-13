@@ -21,7 +21,7 @@ const kafka = new Kafka({
   retry: {
     initialRetryTime: 100,
     retries: 8
-  },
+  }
 });
 
 
