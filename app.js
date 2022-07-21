@@ -5,13 +5,37 @@ var cookieParser = require('cookie-parser');
 var logger = require('morgan');
 require("dotenv").config();
 const mongoose = require("mongoose");
+const swaggerUI = require("swagger-ui-express");
+const swaggerJsDoc = require("swagger-jsdoc");
 
 //importing all routers
 var indexRouter = require('./routes/index');
 var adminRouter = require('./routes/adminroutes');
 var listenerRouter = require('./routes/listener');
 
+//swaggerJsDocOptions
+const options = {
+	definition: {
+		openapi: "3.0.0",
+		info: {
+			title: "Listener API",
+			version: "1.0.0",
+			description: "A simple Express Listener API",
+		},
+		servers: [
+			{
+				url: "http://localhost:3000",
+			},
+		],
+	},
+	apis: ["./routes/*.js"],
+};
+
+const specs = swaggerJsDoc(options);
+
 var app = express();
+
+app.use("/api-docs", swaggerUI.serve, swaggerUI.setup(specs));
 
 // view engine setup
 app.set('views', path.join(__dirname, 'views'));

@@ -280,6 +280,102 @@ setInterval(() => {
 //   }
 // })
 
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     PackageHashes:
+ *       type: object
+ *       required:
+ *         - id
+ *         - packageHashes
+ *       properties:
+ *         id:
+ *           type: string
+ *           description: The id for the PackageHashes document
+ *         packageHashes:
+ *           type: string
+ *           description: The packageHashes for listener to listen      
+ */
+
+/**
+ * @swagger
+ * /listener/addPackageHashToListener:
+ *   post:
+ *     description: This endpoint is used to add packageHash to the listener. 
+ *     tags: [PackageHashes]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               id:
+ *                 type: string
+ *               packageHashes:
+ *                 type: string 
+ *           examples:
+ *             '1':
+ *               value: "{\r\n   \"packageHash\":\"c956ddec09b725a217ac5480fc9cef2411c73b6aaac2e6215ca7255d20f77485\"\r\n}"
+ *             '2':
+ *               value: "{\r\n \r\n}"
+ *             '3':
+ *               value: "{\r\n  \"packageHash\":\"c956ddec09b725a217ac5480fc9cef2411c73b6aaac2e6215ca7255d20f77485\"\r\n}" 
+ * 
+ *     responses:
+ *       200:
+ *         description: PackageHash added to the listener.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: string
+ *               example: {
+ *                         "responseStatus": {
+ *                             "success": true,
+ *                             "errorCode": 0,
+ *                             "errorMessage": "",
+ *                             "error": null
+ *                         },
+ *                         "body": {
+ *                             "message": "PackageHash c956ddec09b725a217ac5480fc9cef2411c73b6aaac2e6215ca7255d20f77485 added to the listener."
+ *                         }
+ *                     }
+ *
+ *       400:
+ *         description: if any parameter not found in the body
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: string
+ *               example: {
+ *                           "responseStatus": {
+ *                             "success": false,
+ *                             "errorCode": 400,
+ *                             "errorMessage": "There was no packageHash specified in the req body.",
+ *                             "error": {}
+ *                           },
+ *                           "body": null
+ *                         }
+ *       406:
+ *         description: if packageHash already added to the listener
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: string
+ *               example: {
+ *                           "responseStatus": {
+ *                             "success": false,
+ *                             "errorCode": 406,
+ *                             "errorMessage": "This packageHash c956ddec09b725a217ac5480fc9cef2411c73b6aaac2e6215ca7255d20f77485 already added to the listener.",
+ *                             "error": {}
+ *                           },
+ *                           "body": null
+ *                         } 
+ * 
+ */
+
 // This endpoint is to add a new packageHash to the listener
 router
   .route("/addPackageHashToListener")
@@ -318,6 +414,86 @@ router
     }
 });
 
+/**
+ * @swagger
+ * /listener/addPackageHashesInDatabase:
+ *   post:
+ *     description: This endpoint is used to add packageHashes to the database. 
+ *     tags: [PackageHashes]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               id:
+ *                 type: string
+ *               packageHashes:
+ *                   type: array
+ *                   items:
+ *                     type: string 
+ *           examples:
+ *             '1':
+ *               value: "{\r\n   \"packageHashes\":[\"5956ddec09b725a217ac5480fc9cef2411c73b6aaac2e6215ca7255d20f77485\",
+ *                   \"a956ddec09b725a217ac5480fc9cef2411c73b6aaac2e6215ca7255d20f77485\"]\r\n}"
+ *             '2':
+ *               value: "{\r\n \r\n}"
+ *             '3':
+ *               value: "{\r\n   \"packageHashes\":[\"6956ddec09b725a217ac5480fc9cef2411c73b6aaac2e6215ca7255d20f77485\",
+ *                   \"9956ddec09b725a217ac5480fc9cef2411c73b6aaac2e6215ca7255d20f77485\"]\r\n}"
+ * 
+ *     responses:
+ *       200:
+ *         description: PackageHashes added Successfully in the database.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: string
+ *               example: {
+ *                         "responseStatus": {
+ *                             "success": true,
+ *                             "errorCode": 0,
+ *                             "errorMessage": "",
+ *                             "error": null
+ *                         },
+ *                         "body": {
+ *                             "message": "PackageHashes added Successfully in the database."
+ *                         }
+ *                     }
+ *
+ *       400:
+ *         description: if any parameter not found in the body
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: string
+ *               example: {
+ *                           "responseStatus": {
+ *                             "success": false,
+ *                             "errorCode": 400,
+ *                             "errorMessage": "There was no packageHashes specified in the req body",
+ *                             "error": {}
+ *                           },
+ *                           "body": null
+ *                         }
+ *       406:
+ *         description: if PackageHashes already added in the database. 
+ *         content:
+ *           application/json:
+ *            schema:
+ *               type: string
+ *               example: {
+ *                          "responseStatus": {
+ *                             "success": false,
+ *                             "errorCode": 406,
+ *                             "errorMessage": "PackageHashes already added in the database.",
+ *                             "error": {}
+ *                           },
+ *                           "body": null
+ *                         }
+ */
+
 //This endpoint is to add all the packageHashes in the database
 router
   .route("/addPackageHashesInDatabase")
@@ -354,6 +530,86 @@ router
       });
     }
 });
+
+/**
+ * @swagger
+ * /listener/updatePackageHashesInDatabase:
+ *   post:
+ *     description: This endpoint is used to update packageHashes to the database.
+ *     tags: [PackageHashes]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               id:
+ *                 type: string
+ *               packageHashes:
+ *                   type: array
+ *                   items:
+ *                     type: string 
+ *           examples:
+ *             '1':
+ *               value: "{\r\n   \"packageHashes\":[\"5956ddec09b725a217ac5480fc9cef2411c73b6aaac2e6215ca7255d20f77485\",
+ *                   \"a956ddec09b725a217ac5480fc9cef2411c73b6aaac2e6215ca7255d20f77485\"]\r\n}"
+ *             '2':
+ *               value: "{\r\n \r\n}"
+ *             '3':
+ *               value: "{\r\n   \"packageHashes\":[\"6956ddec09b725a217ac5480fc9cef2411c73b6aaac2e6215ca7255d20f77485\",
+ *                   \"9956ddec09b725a217ac5480fc9cef2411c73b6aaac2e6215ca7255d20f77485\"]\r\n}" 
+ * 
+ *     responses:
+ *       200:
+ *         description: PackageHashes updated Successfully in the database.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: string
+ *               example: {
+ *                         "responseStatus": {
+ *                             "success": true,
+ *                             "errorCode": 0,
+ *                             "errorMessage": "",
+ *                             "error": null
+ *                         },
+ *                         "body": {
+ *                             "message": "PackageHashes updated Successfully in the database."
+ *                         }
+ *                     }
+ *
+ *       400:
+ *         description: if any parameter not found in the body
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: string
+ *               example: {
+ *                           "responseStatus": {
+ *                             "success": false,
+ *                             "errorCode": 400,
+ *                             "errorMessage": "There was no packageHashes specified in the req body",
+ *                             "error": {}
+ *                           },
+ *                           "body": null
+ *                         }
+ *       404:
+ *         description: if PackageHashes not added in the database. 
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: string
+ *               example: {
+ *                           "responseStatus": {
+ *                             "success": false,
+ *                             "errorCode": 404,
+ *                             "errorMessage": "PackageHashes not added in the database.",
+ *                             "error": {}
+ *                           },
+ *                           "body": null
+ *                         } 
+ */ 
 
 //This endpoint is to update the packageHashes in the database
 router
