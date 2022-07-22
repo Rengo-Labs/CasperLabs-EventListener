@@ -170,9 +170,10 @@ async function pushEventsToKafka()
 
           //produce read Event to kafka
           await producer.produceEvents(deserializedHeadValue);
-          await redis.client.LPOP(process.env.LISTENERREDISQUEUE);
           eventResult.status="produced";
           await eventResult.save();
+          await redis.client.LPOP(process.env.LISTENERREDISQUEUE);
+         
         }
         else{
           console.log("Event is repeated, skipping kafka production...");
