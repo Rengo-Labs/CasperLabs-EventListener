@@ -8,6 +8,7 @@ require("dotenv").config();
 
 // importing models
 var packageHashesData = require("../models/packageHashes");
+var eventsDataModel = require("../models/eventsData");
 
 //seting up kafka
 //setting up a producer
@@ -89,7 +90,6 @@ async function listener()
                   timestamp : (new Date(event.body.DeployProcessed.timestamp)).getTime(),
                   block_hash : event.body.DeployProcessed.block_hash,
                   eventName: eventname.value(),
-                  status: "eventListened",
                   eventsdata: JSON.parse(JSON.stringify(clValue.data)),
               }];
 
@@ -98,7 +98,6 @@ async function listener()
               console.log("DeployHash: ",acc[0].deployHash);
               console.log("Timestamp: ",acc[0].timestamp);
               console.log("Block Hash: ",acc[0].block_hash);
-              console.log("Status: ",acc[0].status);
               console.log("Data: ",acc[0].eventsdata);
 
               //push event to redis queue
@@ -134,9 +133,51 @@ async function pushEventsToKafka()
         let deserializedHeadValue=(deserialize(headValue)).obj;
         console.log("Event Read from queue's head: ", deserializedHeadValue);
 
-        //push poped Event to kafka
-        await producer.produceEvents(deserializedHeadValue);
-        await redis.client.LPOP(process.env.LISTENERREDISQUEUE);
+        //check if event is in the database
+        let eventResult= await eventsDataModel.findOne({
+          deployHash:deserializedHeadValue.deployHash,
+          eventName:deserializedHeadValue.eventName,
+          timestamp:deserializedHeadValue.timestamp,
+          block_hash: deserializedHeadValue.block_hash
+        });
+
+        if (eventResult==null || JSON.stringify(eventResult.eventsdata) != JSON.stringify(deserializedHeadValue.eventsdata) || eventResult.status == "pending")
+        {
+          if(eventResult==null || JSON.stringify(eventResult.eventsdata) != JSON.stringify(deserializedHeadValue.eventsdata))
+          {
+            //store new event Data
+            eventResult= new eventsDataModel ({
+              deployHash:deserializedHeadValue.deployHash,
+              eventName:deserializedHeadValue.eventName,
+              timestamp:deserializedHeadValue.timestamp,
+              block_hash: deserializedHeadValue.block_hash,
+              status:"pending",
+              eventsdata: deserializedHeadValue.eventsdata
+            });
+            await eventsDataModel.create(eventResult);
+          }
+          
+          if(eventResult==null)
+          {
+            console.log("Event is New, producing in kafka...");
+          }
+          else if(JSON.stringify(eventResult.eventsdata) != JSON.stringify(deserializedHeadValue.eventsdata)){
+            console.log("Event has same EventName, producing in kafka...");
+          }
+          else if(eventResult.status == "pending"){
+            console.log("Event is in pending status in database, produce in kafka...");
+          }
+
+          //produce read Event to kafka
+          await producer.produceEvents(deserializedHeadValue);
+          await redis.client.LPOP(process.env.LISTENERREDISQUEUE);
+          eventResult.status="produced";
+          await eventResult.save();
+        }
+        else{
+          console.log("Event is repeated, skipping kafka production...");
+          await redis.client.LPOP(process.env.LISTENERREDISQUEUE);
+        }  
         queuePopFlag=0;
     }
     else{
