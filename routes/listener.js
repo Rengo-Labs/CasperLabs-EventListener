@@ -33,9 +33,9 @@ var PackageHashes=[];
 var queuePopFlag=0;
 
 // // creating a connection to a node for RPC API endpoints
-// const casperService = new CasperServiceByJsonRPC(
-//   process.env.JSON_RPC_API_NODE_URL
-// );
+const casperService = new CasperServiceByJsonRPC(
+  process.env.JSON_RPC_API_NODE_URL
+);
 
 //function to deserialize Event Data
 function deserialize(serializedJavascript){
@@ -197,130 +197,165 @@ setInterval(() => {
 }, 2000);
 
 
-// // to get the latest block height of a node
-// async function getLatestBlockHeight() {
-//   const latestBlockInfoResult = await casperService.getLatestBlockInfo();
-//   console.log(
-//     "latestBlockInfoResult: ",
-//     latestBlockInfoResult.block.header.height
-//   );
-//   return latestBlockInfoResult.block.header.height;
-// }
+//this code is for replay Events if server goes down, (under testing) 
+// to get the latest block height of a node
+async function getLatestBlockHeight() {
+  try {
+    const latestBlockInfoResult = await casperService.getLatestBlockInfo();
+    return latestBlockInfoResult.block.header.height;
+  } catch (error) {
+    throw new error;
+  }
+}
 
-// // to get block data of a node against block height
-// async function getblockData(height) {
-//   const blockInfoByHeightResult = await casperService.getBlockInfoByHeight(
-//     height
-//   );
-//   console.log("blockInfoByHeightResult: ", blockInfoByHeightResult);
-//   console.log(
-//     "blockInfoByHeightResultDeployHashes: ",
-//     blockInfoByHeightResult.block.body.deploy_hashes
-//   );
-//   return blockInfoByHeightResult;
-// }
+// to get block data of a node against block height
+function getblockData(height) {
+  try {
+    console.log("Fetching block : \n",height);
+    const blockInfoByHeightResult = casperService.getBlockInfoByHeight(height);
+    return blockInfoByHeightResult;
+  } catch (error) {
+    throw new error;
+  }
+}
 
-// // to get the deploy Data of a node against deployHash
-// async function getdeployData(deployHash) {
-//   const deployInfoResult = await casperService.getDeployInfo(deployHash);
-//   console.log("deployInfoResult: ", deployInfoResult);
-//   return deployInfoResult;
-// }
+// to get the deploy Data of a node against deployHash
+function getdeployData(deployHash) {
+  try {
+    console.log("Fetching deploy : \n",deployHash);
+    const deployInfoResult = casperService.getDeployInfo(deployHash);
+    return deployInfoResult;
+  } catch (error) {
+    throw new error;
+  }
+}
 
-// //This function replay Events (which being missed when listener backend goes down) upon restart the listener server
-// async function traverseAllBlocksAndDeploys() {
+//This function replay Events (which being missed when listener backend goes down) upon restart the listener server
+async function traverseAllBlocksAndDeploys() {
   
-//   await addPackageHashes();
-//   console.log("packagesHashes :", PackageHashes);
+  try {
+      await addPackageHashes();
+      console.log("packagesHashes :", PackageHashes);
 
-//   contractsPackageHashes =PackageHashes.map((h) => h.toLowerCase());
+      contractsPackageHashes =PackageHashes.map((h) => h.toLowerCase());
 
-//   let currentBlockHeight = 692110;
-//   let latestBlockHeight = await getLatestBlockHeight();
+      let start=692104;
+      let end=692104;
+      let noOfBlocksToQuery=100;
+      let latestBlock= await getLatestBlockHeight();
+      console.log("Latest Block height is : ",latestBlock);
+      setInterval(() => {
 
-//   for (var i = currentBlockHeight; i < latestBlockHeight; i++) {
-//     let chainGetBlockResult = await getblockData(i);
-//     let deployHashes = chainGetBlockResult.block.body.deploy_hashes;
-//     if (deployHashes.length != 0) {
-//       for (var j = 0; j < deployHashes.length; j++) {
-//         let deployHashesResult = await getdeployData(deployHashes[j]);
-//         //console.log(" deployHashesResult.execution_results[0].result.Success.effect.transforms: ", deployHashesResult.execution_results[0].result.Success.effect.transforms);
-//         if (deployHashesResult.execution_results[0].result.Success) {
-//           let transforms =
-//             deployHashesResult.execution_results[0].result.Success.effect
-//               .transforms;
-//           console.log("transforms: ", transforms);
-//           const events = transforms.reduce (async(acc, val) => {
-//             if (val.transform.hasOwnProperty("WriteCLValue") && typeof val.transform.WriteCLValue.parsed === "object" && val.transform.WriteCLValue.parsed !== null) 
-//             {
-//               const maybeCLValue = CLValueParsers.fromJSON(val.transform.WriteCLValue);
-//               const clValue = maybeCLValue.unwrap();
-//               if (clValue && clValue instanceof CLMap) {
-//                 const hash = clValue.get(
-//                   CLValueBuilder.string("contract_package_hash")
-//                 );
-//                 const eventname = clValue.get(CLValueBuilder.string("event_type"));
-//                 console.log("contractsPackageHashes array = ",contractsPackageHashes);
-//                 if (hash && contractsPackageHashes.includes(hash.value())) {
-                  
-//                     // converting events information into JSON form
-//                     acc = [{
-//                       deployHash : deployHashesResult.deploy.hash,
-//                       timestamp : deployHashesResult.deploy.header.timestamp,
-//                       block_hash : deployHashesResult.execution_results[0].block_hash,
-//                       eventName: eventname.value(),
-//                       status: "Pending",
-//                       eventsdata: JSON.parse(JSON.stringify(clValue.data)),
-//                     }];
+          start=end;
+          end=end+noOfBlocksToQuery;
+          if(end>latestBlock)
+          {
+            return;
+          }
+          for (var i = start; i < end; i++) {
+            
+            getblockData(i)
+            .then(function (blocksResponse) {
+              console.log("Block fetched: \n",blocksResponse.block.header.height);
+              let deployHashes = blocksResponse.block.body.deploy_hashes;
+              if (deployHashes.length != 0) {
+                for (var j = 0; j < deployHashes.length; j++) {
+                    getdeployData(deployHashes[j])
+                    .then(function (deploysResponse) {
+                      if (deploysResponse.execution_results[0].result.Success) {
+                        console.log("Deploy fetched : \n",blocksResponse.block.header.height+" "+deploysResponse.deploy.hash);
+                        let transforms =
+                        deploysResponse.execution_results[0].result.Success.effect
+                            .transforms;
+                        
+                        const events = transforms.reduce ((acc, val) => {
+                          if (val.transform.hasOwnProperty("WriteCLValue") && typeof val.transform.WriteCLValue.parsed === "object" && val.transform.WriteCLValue.parsed !== null) 
+                          {
+                            const maybeCLValue = CLValueParsers.fromJSON(val.transform.WriteCLValue);
+                            const clValue = maybeCLValue.unwrap();
+                            if (clValue && clValue instanceof CLMap) {
+                              const hash = clValue.get(
+                                CLValueBuilder.string("contract_package_hash")
+                              );
+                              const eventname = clValue.get(CLValueBuilder.string("event_type"));
+                              if (hash && contractsPackageHashes.includes(hash.value())) {
+                      
+                                // converting events information into JSON form
+                                acc = [{
+                                  deployHash : deploysResponse.deploy.hash,
+                                  timestamp : deploysResponse.deploy.header.timestamp,
+                                  block_hash : deploysResponse.execution_results[0].block_hash,
+                                  eventName: eventname.value(),
+                                  status: "Pending",
+                                  eventsdata: JSON.parse(JSON.stringify(clValue.data)),
+                                }];
+        
+                                //displaying event all data
+                                console.log("Event Received: ",eventname.value());
+                                console.log("DeployHash: ",acc[0].deployHash);
+                                console.log("Timestamp: ",acc[0].timestamp);
+                                console.log("Block Hash: ",acc[0].block_hash);
+                                console.log("Status: ",acc[0].status);
+                                console.log("Data: ",acc[0].eventsdata);
+        
+                                //push event to redis queue
+                                //redis.client.RPUSH(acc[0]);
 
-//                     //displaying event all data
-//                     console.log("Event Received: ",eventname.value());
-//                     console.log("DeployHash: ",acc[0].deployHash);
-//                     console.log("Timestamp: ",acc[0].timestamp);
-//                     console.log("Block Hash: ",acc[0].block_hash);
-//                     console.log("Status: ",acc[0].status);
-//                     console.log("Data: ",acc[0].eventsdata);
+                              }
+                              else{
+                                console.log("This is not our contract's event.");
+                              }
+                            }
+                          }
+                          
+                          if(blocksResponse.block.header.height == (end-1))
+                          {
+                         
+                            let deploysLength=(blocksResponse.block.body.deploy_hashes).length;
+                            if(blocksResponse.block.body.deploy_hashes[deploysLength-1] == deploysResponse.deploy.hash)
+                            {
+                              if(transforms[(transforms.length-1)] == val)
+                              {
+                                console.log("Last Block: ",blocksResponse.block.header.height);
+                                console.log("Last Deploy: ",deploysResponse.deploy.hash);
+                                console.log("Last value in transforms Array: ",val);
+                              }
+                            }
+                          }  
+                          return acc;
+                        },[]);
+                      }
+                    });
+                }
+              }
+            });
+          }
+      }, 5000);
+  }
+  catch (error) {
+    throw new error; 
+  }
+}
 
-//                     //push event to redis queue
-//                     redis.client.RPUSH(acc[0]);
-//                 }
-//               }
-//             }
-//             return acc;
-//           },[]);
-//         }
-//       }
-//     }
-//   }
-// }
+// This endpoint is just for testing the replayEventsFeature
+router.route("/replayEvents").get(async function (req, res, next) {
+  try {
 
-// // This endpoint is just for testing the replayEventsFeature
-// router.route("/replayEvents").post(async function (req, res, next) {
-//   try {
+    traverseAllBlocksAndDeploys();
 
-//     if(!req.body.contractPackageHashes)
-//     {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Listener did not initiated, There was no contractPackageHashes specified in the req body.",
-//       });
-//     }
-//     PackageHashes=req.body.contractPackageHashes;
-//     traverseAllBlocksAndDeploys();
+    return res.status(200).json({
+      success: true,
+      message: "EventsReplay Started Successfully."
+    });
 
-//     return res.status(200).json({
-//       success: true,
-//       message: "EventsReplay Started Successfully."
-//     });
-
-//   } catch (error) {
-//     console.log("error (try-catch) : " + error);
-//     return res.status(500).json({
-//       success: false,
-//       err: error,
-//     });
-//   }
-// })
+  } catch (error) {
+    console.log("error (try-catch) : " + error);
+    return res.status(500).json({
+      success: false,
+      err: error,
+    });
+  }
+})
 
 
 /**
