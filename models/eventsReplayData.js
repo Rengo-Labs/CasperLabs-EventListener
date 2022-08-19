@@ -10,7 +10,10 @@ const eventsReplayDataSchema = new Schema({
 	},
 	deployData:{
 		type:Object
-	}
+	},
+	status: {
+		type: String,
+	},
 });
 
 var eventsReplayData = mongoose.model("eventsReplayData", eventsReplayDataSchema);

@@ -76,9 +76,15 @@ async function listener()
     if (event.body.DeployProcessed.execution_result.Success) {
       
       const { transforms } = event.body.DeployProcessed.execution_result.Success.effect;
-        
-        redis.client.SET(process.env.LASTBLOCK,event.body.DeployProcessed.block_hash);
-        console.log("Last block saved.");
+
+        redis.client.GET(process.env.LASTBLOCK)
+        .then(async function (lastBlock) {
+          if(lastBlock==null)
+          {
+            redis.client.SET(process.env.LASTBLOCK,event.body.DeployProcessed.block_hash);
+            console.log("Last block saved.");
+          }
+        });
         
         const events = transforms.reduce (async(acc, val) => {
         if (val.transform.hasOwnProperty("WriteCLValue") && typeof val.transform.WriteCLValue.parsed === "object" && val.transform.WriteCLValue.parsed !== null) 
@@ -112,6 +118,8 @@ async function listener()
               //push event to redis queue
               redis.client.RPUSH(process.env.LISTENERREDISQUEUE,serialize({obj: acc[0]}));
               console.log("Event pushed to queue.");
+              redis.client.SET(process.env.LASTBLOCK,event.body.DeployProcessed.block_hash);
+              console.log("Last block saved.");
             }
           }
         }
@@ -185,7 +193,7 @@ async function pushEventsToKafka(queue)
           eventResult.status="produced";
           await eventResult.save();
           await redis.client.LPOP(queue);
-         
+          
         }
         else{
           console.log("Event is repeated, skipping kafka production...");
@@ -292,7 +300,8 @@ async function getdeployDataAndInsertInRedisHashMap(deployHash,height,blocksResp
           var newData= new eventsReplayDataModel({
                 blockHeight:height,
                 blockData:blocksResponse,
-                deployData:deploysResponse
+                deployData:deploysResponse,
+                status:"Added"
           });
           await eventsReplayDataModel.create(newData);
       } 
@@ -492,70 +501,77 @@ async function filterEventsReplayModel(lastBlock,latestBlock) {
             {
               data=await checkingDeployDatawithDeployHashes(i,data);
               console.log("outside while 2");
-              console.log("data[0].deployHashes: ",data[0].deployHashes);
               for(var j=0;j<data[0].blockData.block.body.deploy_hashes.length;j++)
               {
                   console.log("In the second loop");
-                  let deploysResponse;
+                  let blockAndDeployData,deploysResponse;
                   for(var k=0;k<data.length;k++)
                   {
                     console.log("In the third loop");
                     if(data[0].blockData.block.body.deploy_hashes[j]== data[k].deployData.deploy.hash)
                     {
-                      deploysResponse=data[k].deployData;
+                      blockAndDeployData=data[k];
                       break;
                     }
                   }
-                  
-                  console.log("deploysResponse: ", deploysResponse);
-                  if (deploysResponse.execution_results[0].result.Success) {
-                    let transforms =
-                    deploysResponse.execution_results[0].result.Success.effect
-                        .transforms;
-                    console.log("transforms: ",transforms);
-                    for (var x=0;x<transforms.length;x++)
-                    {
-                      console.log("In the 4th loop");
-                      if (transforms[x].transform.hasOwnProperty("WriteCLValue") && typeof transforms[x].transform.WriteCLValue.parsed === "object" && transforms[x].transform.WriteCLValue.parsed !== null) 
+                  if(blockAndDeployData.status=="Added")
+                  {
+                    deploysResponse=blockAndDeployData.deployData;
+                    console.log("deploysResponse: ", deploysResponse);
+                    if (deploysResponse.execution_results[0].result.Success) {
+                      let transforms =
+                      deploysResponse.execution_results[0].result.Success.effect
+                          .transforms;
+                      console.log("transforms: ",transforms);
+                      for (var x=0;x<transforms.length;x++)
                       {
-                        const maybeCLValue = CLValueParsers.fromJSON(transforms[x].transform.WriteCLValue);
-                        const clValue = maybeCLValue.unwrap();
-                        if (clValue && clValue instanceof CLMap) {
-                          const hash = clValue.get(
-                            CLValueBuilder.string("contract_package_hash")
-                          );
-                          const eventname = clValue.get(CLValueBuilder.string("event_type"));
-                          if (hash && contractsPackageHashes.includes(hash.value())) {
-                  
-                            // converting events information into JSON form
-                            acc = [{
-                              deployHash : deploysResponse.deploy.hash,
-                              timestamp : deploysResponse.deploy.header.timestamp,
-                              block_hash : deploysResponse.execution_results[0].block_hash,
-                              eventName: eventname.value(),
-                              status: "Pending",
-                              eventsdata: JSON.parse(JSON.stringify(clValue.data)),
-                            }];
-        
-                            //displaying event all data
-                            console.log("Event Received: ",eventname.value());
-                            console.log("DeployHash: ",acc[0].deployHash);
-                            console.log("Timestamp: ",acc[0].timestamp);
-                            console.log("Block Hash: ",acc[0].block_hash);
-                            console.log("Status: ",acc[0].status);
-                            console.log("Data: ",acc[0].eventsdata);
-        
-                            //push event to redis queue
-                            redis.client.RPUSH(process.env.LISTENERREDISEVENTSREPLAYQUEUE,acc[0]);
-        
-                          }
-                          else{
-                            console.log("This is not our contract's event.");
+                        console.log("In the 4th loop");
+                        if (transforms[x].transform.hasOwnProperty("WriteCLValue") && typeof transforms[x].transform.WriteCLValue.parsed === "object" && transforms[x].transform.WriteCLValue.parsed !== null) 
+                        {
+                          const maybeCLValue = CLValueParsers.fromJSON(transforms[x].transform.WriteCLValue);
+                          const clValue = maybeCLValue.unwrap();
+                          if (clValue && clValue instanceof CLMap) {
+                            const hash = clValue.get(
+                              CLValueBuilder.string("contract_package_hash")
+                            );
+                            const eventname = clValue.get(CLValueBuilder.string("event_type"));
+                            if (hash && contractsPackageHashes.includes(hash.value())) {
+                    
+                              // converting events information into JSON form
+                              acc = [{
+                                deployHash : deploysResponse.deploy.hash,
+                                timestamp : deploysResponse.deploy.header.timestamp,
+                                block_hash : deploysResponse.execution_results[0].block_hash,
+                                eventName: eventname.value(),
+                                status: "Pending",
+                                eventsdata: JSON.parse(JSON.stringify(clValue.data)),
+                              }];
+          
+                              //displaying event all data
+                              console.log("Event Received: ",eventname.value());
+                              console.log("DeployHash: ",acc[0].deployHash);
+                              console.log("Timestamp: ",acc[0].timestamp);
+                              console.log("Block Hash: ",acc[0].block_hash);
+                              console.log("Status: ",acc[0].status);
+                              console.log("Data: ",acc[0].eventsdata);
+          
+                              //push event to redis queue
+                              redis.client.RPUSH(process.env.LISTENERREDISEVENTSREPLAYQUEUE,acc[0]);
+          
+                            }
+                            else{
+                              console.log("This is not our contract's event.");
+                            }
                           }
                         }
                       }
-                    }
+                      blockAndDeployData.status="Filtered";
+                      await blockAndDeployData.save();
                   }
+                }
+                else{
+                  console.log("Deploy already filtered...");
+                }
               }
             }
             
@@ -587,17 +603,44 @@ async function timeDiff()
 async function checkIfEventsMissed()
 {
   try {
-    let iseventsReplay=await timeDiff();
-    let lastBlock= await getLastBlockHeight();
-    console.log("lastBlock height is : ",lastBlock);
-    if(iseventsReplay || lastBlock != false)
+
+    let eventsReplayStatus = await redis.client.GET(process.env.EVENTSREPLAYSTATUS);
+    let iseventsReplay,lastBlock,latestBlock; 
+    if(eventsReplayStatus == null || eventsReplayStatus == "DONE")
+    {
+      iseventsReplay=await timeDiff();
+      await redis.client.SET(process.env.TIMEFOREVENTSREPLAY,iseventsReplay.toString());
+      if(iseventsReplay)
+      {
+        await redis.client.SET(process.env.EVENTSREPLAYSTATUS,"PROGRESS");
+
+        lastBlock= await getLastBlockHeight();
+        console.log("lastBlock height is : ",lastBlock);
+        await redis.client.SET(process.env.LASTBLOCKFOREVENTSREPLAY,lastBlock);
+  
+        latestBlock= await getLatestBlockHeight();
+        console.log("Latest Block height is : ",latestBlock);
+        await redis.client.SET(process.env.LASTESTBLOCK,latestBlock);
+      }
+    }
+    iseventsReplay=await redis.client.GET(process.env.TIMEFOREVENTSREPLAY);
+    lastBlock = await redis.client.GET(process.env.LASTBLOCKFOREVENTSREPLAY);
+    latestBlock = await redis.client.GET(process.env.LASTESTBLOCK);
+
+    let latestTimeCheck=await timeDiff();
+    if (latestTimeCheck)
+    {
+      latestBlock= await getLatestBlockHeight();
+      console.log("Latest Block height is : ",latestBlock);
+      await redis.client.SET(process.env.LASTESTBLOCK,latestBlock);
+    }
+
+    if(iseventsReplay || lastBlock != false )
     {
       console.log("Starting Events Reply...");
+
       let DummyLastBlock = 692104;
-      
-      let latestBlock= await getLatestBlockHeight();
-      console.log("Latest Block height is : ",latestBlock);
-      let DummyLatestBlock = 692159;
+      let DummyLatestBlock = 692110;
       
       var interval = setInterval(() => {
       pushEventsToKafka(process.env.LISTENERREDISEVENTSREPLAYQUEUE);
@@ -617,6 +660,7 @@ async function checkIfEventsMissed()
             await sleep(2000);
           }
           clearInterval(interval);
+          await redis.client.SET(process.env.EVENTSREPLAYSTATUS,"DONE");
           console.log("Popping and Producing EventStream Events... ");
           setInterval(() => {
             pushEventsToKafka(process.env.LISTENERREDISQUEUE);
@@ -645,7 +689,7 @@ async function updateTime()
   await redis.client.SET(process.env.TIMEATSHUTDOWN,currentDate);
 }
 setInterval(() => {
-  updateTime()
+  updateTime();
 },5000);
 
 /**
