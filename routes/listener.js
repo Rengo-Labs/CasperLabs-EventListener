@@ -82,7 +82,7 @@ async function listener()
           if(lastBlock==null)
           {
             redis.client.SET(process.env.LASTBLOCK,event.body.DeployProcessed.block_hash);
-            console.log("Last block saved.");
+            console.log("Last block saved, When last block is null.");
           }
         });
         
@@ -133,10 +133,32 @@ async function listener()
 }
 
 async function startEventListener(){
-  await sleep(30000);
+  await sleep(15000);
   listener();
 }
 startEventListener();
+
+async function saveEventInDataBase(deployHash,eventName,timestamp,blockHash,eventsdata)
+{
+  let eventResult= new eventsDataModel ({
+    deployHash:deployHash,
+    eventName:eventName,
+    timestamp:timestamp,
+    block_hash: blockHash,
+    status:"pending",
+    eventType:"NotSame",
+    eventsdata:eventsdata
+  });
+  await eventsDataModel.create(eventResult);
+  return eventResult;
+}
+
+async function produceInKafka(data,eventResult,queue)
+{
+  await producer.produceEvents(data);
+  eventResult.status="produced";
+  await eventResult.save();
+}
 
 async function pushEventsToKafka(queue)
 {
@@ -145,66 +167,66 @@ async function pushEventsToKafka(queue)
     
     let redisLength=await redis.client.LLEN(queue);
     
-    //check redis queue length
-    if(redisLength>0)
-    {
-        queuePopFlag=1;
-        let headValue=await redis.client.LRANGE(queue,0,0);
-        let deserializedHeadValue=(deserialize(headValue)).obj;
-        console.log("Event Read from queue's head: ", deserializedHeadValue);
-
-        //check if event is in the database
-        let eventResult= await eventsDataModel.findOne({
-          deployHash:deserializedHeadValue.deployHash,
-          eventName:deserializedHeadValue.eventName,
-          timestamp:deserializedHeadValue.timestamp,
-          block_hash: deserializedHeadValue.block_hash
-        });
-
-        if (eventResult==null || JSON.stringify(eventResult.eventsdata) != JSON.stringify(deserializedHeadValue.eventsdata) || eventResult.status == "pending")
+        //check redis queue length
+        if(redisLength>0)
         {
-          if(eventResult==null || JSON.stringify(eventResult.eventsdata) != JSON.stringify(deserializedHeadValue.eventsdata))
-          {
-            //store new event Data
-            eventResult= new eventsDataModel ({
-              deployHash:deserializedHeadValue.deployHash,
-              eventName:deserializedHeadValue.eventName,
-              timestamp:deserializedHeadValue.timestamp,
-              block_hash: deserializedHeadValue.block_hash,
-              status:"pending",
-              eventsdata: deserializedHeadValue.eventsdata
-            });
-            await eventsDataModel.create(eventResult);
-          }
-          
-          if(eventResult==null)
-          {
-            console.log("Event is New, producing in kafka...");
-          }
-          else if(JSON.stringify(eventResult.eventsdata) != JSON.stringify(deserializedHeadValue.eventsdata)){
-            console.log("Event has same EventName, producing in kafka...");
-          }
-          else if(eventResult.status == "pending"){
-            console.log("Event is in pending status in database, produce in kafka...");
-          }
+          queuePopFlag=1;
+          let headValue=await redis.client.LRANGE(queue,0,0);
+          let deserializedHeadValue=(deserialize(headValue)).obj;
+          console.log("Event Read from queue's head: ", deserializedHeadValue);
 
-          //produce read Event to kafka
-          await producer.produceEvents(deserializedHeadValue);
-          eventResult.status="produced";
-          await eventResult.save();
+          //check if event is in the database
+          let eventResult= await eventsDataModel.findOne({
+            deployHash:deserializedHeadValue.deployHash,
+            eventName:deserializedHeadValue.eventName,
+            timestamp:deserializedHeadValue.timestamp,
+            block_hash: deserializedHeadValue.block_hash
+          });
+
+          if(eventResult!=null && JSON.stringify(eventResult.eventsdata) == JSON.stringify(deserializedHeadValue.eventsdata) && eventResult.status == "produced"){
+            console.log("Event is repeated, skipping kafka production...");
+          }  
+          else{
+
+            if(eventResult==null)
+            {
+                console.log("Event is New, producing in kafka...");
+                //store new event Data
+                let result =await saveEventInDataBase(deserializedHeadValue.deployHash,deserializedHeadValue.eventName,deserializedHeadValue.timestamp,deserializedHeadValue.block_hash,deserializedHeadValue.eventsdata);
+                //produce read Event to kafka
+                await produceInKafka(deserializedHeadValue,result);
+            }
+            else{
+              if(JSON.stringify(eventResult.eventsdata) != JSON.stringify(deserializedHeadValue.eventsdata)){
+                if(eventResult.eventType == "NotSame")
+                {
+                  console.log("Event has same EventName, producing in kafka...");
+                  //store new event Data
+                  let result =await saveEventInDataBase(deserializedHeadValue.deployHash,deserializedHeadValue.eventName,deserializedHeadValue.timestamp,deserializedHeadValue.block_hash,deserializedHeadValue.eventsdata);
+                  result.eventType="same";
+                  eventResult.eventType="same";
+                  await result.save();
+                  await eventResult.save();
+                  //produce read Event to kafka
+                  await produceInKafka(deserializedHeadValue,result);
+                } else{
+                  console.log("Event is repeated, skipping producing in kafka...");
+                }
+              }
+              else if(eventResult.status == "pending"){
+                  console.log("Event is in pending status in database, produce in kafka...");
+                  //produce read Event to kafka
+                  await produceInKafka(deserializedHeadValue);
+              }
+            }
+          }
           await redis.client.LPOP(queue);
-          
+          queuePopFlag=0;
         }
         else{
-          console.log("Event is repeated, skipping kafka production...");
-          await redis.client.LPOP(queue);
-        }  
-        queuePopFlag=0;
-    }
-    else{
-      console.log("There are currently no Events in the Redis queue name = " + queue);
-      return;
-    }
+          console.log("There are currently no Events in the Redis queue name = " + queue);
+          return;
+        }
   }
   else{
     console.log("Already, one Event is producing in kafka...");
@@ -236,7 +258,7 @@ async function getLastBlockHeight() {
     let lastBlock= await redis.client.GET(process.env.LASTBLOCK);
     if(lastBlock==null)
     {
-      return false;
+      return null;
     }
     else{
       const lastBlockInfoResult = await casperService.getBlockInfo(lastBlock);
@@ -264,15 +286,6 @@ async function getblockData(height) {
       console.log("Fetching block : \n",height);
       const blockInfoByHeightResult = casperService.getBlockInfoByHeight(height)
       return blockInfoByHeightResult;
-      // .then(async function (blocksResponse) {
-      //   if(blocksResponse.error)
-      //   {
-      //     getblockData(height);
-      //   }
-      //   else{
-      //     return blocksResponse;
-      //   }
-      // });
     }
     else
     {
@@ -471,11 +484,11 @@ async function checkingDeployDatawithDeployHashes(height,data){
       while(data[0].blockData.block.body.deploy_hashes.length != data.length)
       {
         console.log("Block-"+height+" waiting for deployHashes length gets equal "+data[0].blockData.block.body.deploy_hashes.length +"-"+ data.length);
-        eventsReplayData= await eventsReplayDataModel.find({blockHeight:height});
+        data= await eventsReplayDataModel.find({blockHeight:height});
         await sleep(2000);
       }
       console.log("Found All DeploysData "+ height);
-      return eventsReplayData;
+      return data;
     }
     else{
       console.log("Found All DeploysData "+ height);
@@ -536,11 +549,11 @@ async function filterEventsReplayModel(lastBlock,latestBlock) {
                             );
                             const eventname = clValue.get(CLValueBuilder.string("event_type"));
                             if (hash && contractsPackageHashes.includes(hash.value())) {
-                    
+                              
                               // converting events information into JSON form
                               acc = [{
                                 deployHash : deploysResponse.deploy.hash,
-                                timestamp : deploysResponse.deploy.header.timestamp,
+                                timestamp : (new Date(deploysResponse.deploy.header.timestamp)).getTime(),
                                 block_hash : deploysResponse.execution_results[0].block_hash,
                                 eventName: eventname.value(),
                                 status: "Pending",
@@ -556,7 +569,7 @@ async function filterEventsReplayModel(lastBlock,latestBlock) {
                               console.log("Data: ",acc[0].eventsdata);
           
                               //push event to redis queue
-                              redis.client.RPUSH(process.env.LISTENERREDISEVENTSREPLAYQUEUE,acc[0]);
+                              redis.client.RPUSH(process.env.LISTENERREDISEVENTSREPLAYQUEUE,serialize({obj: acc[0]}));
           
                             }
                             else{
@@ -584,6 +597,18 @@ async function filterEventsReplayModel(lastBlock,latestBlock) {
   }
 }
 
+// This function will update time after every 5 seconds,
+// because we want to check time interval for server shutdown
+// and take required steps
+async function updateTime()
+{
+  let currentDate = new Date().getTime();
+  await redis.client.SET(process.env.TIMEATSHUTDOWN,currentDate);
+}
+setInterval(() => {
+  updateTime();
+},5000);
+
 async function timeDiff()
 {
   let timeAtShutDown=await redis.client.GET(process.env.TIMEATSHUTDOWN);
@@ -592,10 +617,12 @@ async function timeDiff()
   console.log("LatestTime: ",currentDate);
   let diff=currentDate-timeAtShutDown;
   diff=1600000;
-  if(diff > process.env.TTL && timeAtShutDown!= null){
+  if(1600000 > process.env.TTL && timeAtShutDown!= null){
+    console.log("Time Difference is greater than 25 minutes..");
     return true;
   }
   else{
+    console.log("Time Difference is not greater than 25 minutes..");
     return false;
   }
 }
@@ -616,11 +643,17 @@ async function checkIfEventsMissed()
 
         lastBlock= await getLastBlockHeight();
         console.log("lastBlock height is : ",lastBlock);
-        await redis.client.SET(process.env.LASTBLOCKFOREVENTSREPLAY,lastBlock);
-  
+        if(lastBlock==null)
+        {
+          await redis.client.SET(process.env.LASTBLOCKFOREVENTSREPLAY,"null");
+        }
+        else{
+          await redis.client.SET(process.env.LASTBLOCKFOREVENTSREPLAY,lastBlock.toString());
+        }
+        
         latestBlock= await getLatestBlockHeight();
         console.log("Latest Block height is : ",latestBlock);
-        await redis.client.SET(process.env.LASTESTBLOCK,latestBlock);
+        await redis.client.SET(process.env.LASTESTBLOCK,latestBlock.toString());
       }
     }
     iseventsReplay=await redis.client.GET(process.env.TIMEFOREVENTSREPLAY);
@@ -634,22 +667,26 @@ async function checkIfEventsMissed()
       console.log("Latest Block height is : ",latestBlock);
       await redis.client.SET(process.env.LASTESTBLOCK,latestBlock);
     }
-
-    if(iseventsReplay || lastBlock != false )
+    console.log("iseventsReplay: ",iseventsReplay);
+    console.log("lastBlock: ",lastBlock);
+    if(iseventsReplay == "true" || lastBlock != null )
     {
       console.log("Starting Events Reply...");
 
-      let DummyLastBlock = 692104;
-      let DummyLatestBlock = 692110;
-      
+      let DummyLastBlock = 910787;
+      let DummyLatestBlock = 910795;
+
       var interval = setInterval(() => {
       pushEventsToKafka(process.env.LISTENERREDISEVENTSREPLAYQUEUE);
       }, 2000);
 
       fetchBlocksAndDeploysData(DummyLastBlock,DummyLatestBlock);
+      await addPackageHashes();
+      console.log("packagesHashes :", PackageHashes);
+      contractsPackageHashes =PackageHashes.map((h) => h.toLowerCase());
       filterEventsReplayModel(DummyLastBlock,DummyLatestBlock)
       .then(async function (response) {
-        console.log("FilterRedisHashMap Response: ",response);
+        console.log("FilterEventsReplayModel Response: ",response);
         let eventsReplayresult=response;
         if(eventsReplayresult=="eventsReplayCompleted"){
           console.log("EventsReplay Completed... ");
@@ -679,18 +716,6 @@ async function checkIfEventsMissed()
   
 }
 checkIfEventsMissed();
-
-// This function will update time after every 5 seconds,
-// because we want to check time interval for server shutdown
-// and take required steps
-async function updateTime()
-{
-  let currentDate = new Date().getTime();
-  await redis.client.SET(process.env.TIMEATSHUTDOWN,currentDate);
-}
-setInterval(() => {
-  updateTime();
-},5000);
 
 /**
  * @swagger

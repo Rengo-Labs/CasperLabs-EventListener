@@ -41,6 +41,5 @@ async function produceEvents(data)
         console.error('Error publishing message', error)
     }
 }
-//produceEvents("10",{"eventName":"approve","deployHash":"123"});
 
 module.exports = {produceEvents};

@@ -11,6 +11,9 @@ const eventsDataSchema = new Schema({
 	status:{
 		type:String,
 	},
+	eventType:{
+		type:String,
+	},
 	timestamp: {
 		type: Number,
 	},
