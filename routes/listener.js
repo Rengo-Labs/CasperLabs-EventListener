@@ -334,6 +334,9 @@ async function fetchBlocksAndDeploysData(lastBlock,latestBlock) {
   try {
 
       console.log("In fetch function...");
+      console.log("lastBlock: ",lastBlock);
+      console.log("latestBlock: ",latestBlock);
+
       let start=lastBlock;
       let end=lastBlock;
       let noOfBlocksToQuery=1;
@@ -507,7 +510,10 @@ async function checkingDeployDatawithDeployHashes(height,data){
 //This function filters events from EventsReplayModel and push events to Redis eventReplay queue
 async function filterEventsReplayModel(lastBlock,latestBlock) {
   try {
+     
       console.log("In filter function...");
+      console.log("lastBlock: ",lastBlock);
+      console.log("latestBlock: ",latestBlock);
       await checkingEventsReplayModelLength();
 
       for(var i=lastBlock;i<=latestBlock;i++)
