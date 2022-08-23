@@ -4,7 +4,7 @@ The following is a set of rules and guidelines for contributing to this repo. Pl
 
 ## Submitting issues
 
-If you have questions about how to use EventListener, please direct these to the related discord channels and do not file an issue:
+If you have questions about how to use CasperLabs-EventListener, please direct these to the related discord channels and do not file an issue:
 * [#validators-general](https://discord.gg/9CTHRvvA4d)
 * [#node-tech-support](https://discord.gg/9CTHRvvA4d)
 

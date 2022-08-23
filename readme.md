@@ -18,5 +18,8 @@ To package and run this application with node, you'll need to:
 * npm install to install all the packages in the package.json file
 * npm start to run the server
 
+Listener Architecture Documentation: 
+https://docs.google.com/document/d/1eiP_UrAI2vrevCzMLlosOp23WibxohCiv6BirpU99V0/edit?usp=sharing
+
 AWS Link: http://casperswaplistenerbackend-env.eba-rbumbt2m.us-east-1.elasticbeanstalk.com/
 

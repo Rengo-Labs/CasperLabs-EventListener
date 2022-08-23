@@ -3,19 +3,43 @@ var express = require('express');
 var path = require('path');
 var cookieParser = require('cookie-parser');
 var logger = require('morgan');
-const mongoose = require("mongoose");
 require("dotenv").config();
+const mongoose = require("mongoose");
+const swaggerUI = require("swagger-ui-express");
+const swaggerJsDoc = require("swagger-jsdoc");
 
-//routers
+//importing all routers
 var indexRouter = require('./routes/index');
 var adminRouter = require('./routes/adminroutes');
 var listenerRouter = require('./routes/listener');
 
+//swaggerJsDocOptions
+const options = {
+	definition: {
+		openapi: "3.0.0",
+		info: {
+			title: "Listener API",
+			version: "1.0.0",
+			description: "A simple Express Listener API",
+		},
+		servers: [
+			{
+				url: "http://localhost:3000",
+			},
+		],
+	},
+	apis: ["./routes/*.js"],
+};
+
+const specs = swaggerJsDoc(options);
+
 var app = express();
+
+app.use("/api-docs", swaggerUI.serve, swaggerUI.setup(specs));
 
 // view engine setup
 app.set('views', path.join(__dirname, 'views'));
-app.set('view engine', 'jade');
+app.set('view engine', 'pug');
 
 app.use(logger('dev'));
 app.use(express.json());
@@ -24,6 +48,7 @@ app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
 
+// Database Connection
 var DB_URL;
 
 DB_URL = process.env.DATABASE_URL_ONLINE;
@@ -40,9 +65,11 @@ connect.then(
   }
 );
 
+//Defining all routes
 app.use('/', indexRouter);
 app.use('/', adminRouter);
 app.use('/listener', listenerRouter);
+
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
