@@ -1,4 +1,4 @@
-var express = require("express");
+var express = require('express');
 var router = express.Router();
 const CasperSDK = require("casper-js-sdk");
 const { EventStream, EventName, CLValueBuilder, CLValueParsers, CLMap, CasperServiceByJsonRPC, } = CasperSDK;
@@ -72,9 +72,7 @@ async function listener()
   
   contractsPackageHashes =PackageHashes.map((h) => h.toLowerCase());
 
-  contractsPackageHashes = PackageHashes.map((h) => h.toLowerCase());
-
-  es.subscribe(EventName.DeployProcessed, async (event) => {
+  es.subscribe(EventName.DeployProcessed,async(event)=> {
     if (event.body.DeployProcessed.execution_result.Success) {
       
       const { transforms } = event.body.DeployProcessed.execution_result.Success.effect;
@@ -98,10 +96,7 @@ async function listener()
               CLValueBuilder.string("contract_package_hash")
             );
             const eventname = clValue.get(CLValueBuilder.string("event_type"));
-            console.log(
-              "contractsPackageHashes array = ",
-              contractsPackageHashes
-            );
+            console.log("contractsPackageHashes array = ",contractsPackageHashes);
             if (hash && contractsPackageHashes.includes(hash.value())) {
               
               // converting events information into JSON form
@@ -129,10 +124,10 @@ async function listener()
           }
         }
         return acc;
-      }, []);
+      },[]);
     }
   });
-
+  
   es.start();
   console.log("Listener initiated...");
 }
@@ -334,9 +329,6 @@ async function fetchBlocksAndDeploysData(lastBlock,latestBlock) {
   try {
 
       console.log("In fetch function...");
-      console.log("lastBlock: ",lastBlock);
-      console.log("latestBlock: ",latestBlock);
-
       let start=lastBlock;
       let end=lastBlock;
       let noOfBlocksToQuery=1;
@@ -346,13 +338,14 @@ async function fetchBlocksAndDeploysData(lastBlock,latestBlock) {
       }
       while(lastBlock<=latestBlock)
       {   
-          if(end+noOfBlocksToQuery>latestBlock)
+          if((end+noOfBlocksToQuery)>(latestBlock))
           {
               if(((end+noOfBlocksToQuery)-latestBlock)<=5)
               {
                 noOfBlocksToQuery=1;
               }
               else{
+               
                 break;
               }
           }
@@ -510,10 +503,7 @@ async function checkingDeployDatawithDeployHashes(height,data){
 //This function filters events from EventsReplayModel and push events to Redis eventReplay queue
 async function filterEventsReplayModel(lastBlock,latestBlock) {
   try {
-     
       console.log("In filter function...");
-      console.log("lastBlock: ",lastBlock);
-      console.log("latestBlock: ",latestBlock);
       await checkingEventsReplayModelLength();
 
       for(var i=lastBlock;i<=latestBlock;i++)
@@ -627,6 +617,7 @@ async function timeDiff()
   let currentDate = new Date().getTime();
   console.log("LatestTime: ",currentDate);
   let diff=currentDate-timeAtShutDown;
+  
   if(diff > process.env.TTL && timeAtShutDown!= null){
     console.log("Time Difference is greater than 25 minutes..");
     return true;
@@ -675,11 +666,12 @@ async function checkIfEventsMissed()
     {
       latestBlock= await getLatestBlockHeight();
       console.log("Latest Block height is : ",latestBlock);
-      await redis.client.SET(process.env.LASTESTBLOCK,latestBlock);
+      await redis.client.SET(process.env.LASTESTBLOCK,latestBlock.toString());
     }
     console.log("iseventsReplay: ",iseventsReplay);
     console.log("lastBlock: ",lastBlock);
-    if(iseventsReplay == "true" && lastBlock != null )
+
+    if(iseventsReplay == "true" && (lastBlock != null || lastBlock != "null") )
     {
       console.log("Starting Events Reply...");
 
@@ -687,11 +679,11 @@ async function checkIfEventsMissed()
       pushEventsToKafka(process.env.LISTENERREDISEVENTSREPLAYQUEUE);
       }, 2000);
 
-      fetchBlocksAndDeploysData(lastBlock,latestBlock);
+      fetchBlocksAndDeploysData(parseInt(lastBlock),parseInt(latestBlock));
       await addPackageHashes();
       console.log("packagesHashes :", PackageHashes);
       contractsPackageHashes =PackageHashes.map((h) => h.toLowerCase());
-      filterEventsReplayModel(lastBlock,latestBlock)
+      filterEventsReplayModel(parseInt(lastBlock),parseInt(latestBlock))
       .then(async function (response) {
         console.log("FilterEventsReplayModel Response: ",response);
         let eventsReplayresult=response;
