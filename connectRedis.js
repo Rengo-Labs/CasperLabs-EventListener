@@ -14,7 +14,7 @@ client.on('connect', function(){
     console.log('Connected to Redis...');
 }); 
 
-client.on('error', (err) => console.log('Redis Client Error', err));
+client.on('error', (err) => console.log('Redis Client ', err));
 
 async function connectDatabase()
 {

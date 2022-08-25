@@ -28,6 +28,9 @@ var redis = require('../connectRedis');
 //import library to serilize EventData
 var serialize = require('serialize-javascript');
 
+//import library to create pool to limit no of connections to RPC
+const genericPool = require("generic-pool");
+
 //for global use
 var contractsPackageHashes=[];
 var PackageHashes=[];
@@ -256,7 +259,7 @@ async function pushEventsToKafka(queue)
 
 //this code is for replay Events if server goes down, (under testing) 
 // to get the latest block height of a node
-async function getLatestBlockHeight(retries = 10) {
+async function getLatestBlockHeight(retries =  process.env.RETRIES) {
   try {
     const latestBlockInfoResult = await casperService.getLatestBlockInfo();
     return latestBlockInfoResult.block.header.height;
@@ -278,7 +281,7 @@ async function getLatestBlockHeight(retries = 10) {
 }
 
 // to get the last block height when the server shut down
-async function getLastBlockHeight(retries = 10) {
+async function getLastBlockHeight(retries = process.env.RETRIES) {
   try {
     let lastBlock= await redis.client.GET(process.env.LASTBLOCK);
     if(lastBlock==null)
@@ -306,108 +309,98 @@ async function getLastBlockHeight(retries = 10) {
 }
 
 // to get block data of a node against block height
-async function getblockData(height,retries = 10) {
-  
-  let data= await eventsReplayDataModel.find({blockHeight:height});
+async function getblockData(height,retries = process.env.RETRIES) {
+  try {
 
-  if(data.length == 0 || data[0].blockData.block.body.deploy_hashes.length != data.length)
-  {
-    console.log("Fetching block : \n",height);
-    return await casperService.getBlockInfoByHeight(height)
-    .catch(async function (error){
-        console.log("RPC failed: in fecthing blockData "+height);
-        console.log("error is : ",error);
-        if (retries > 0) {
-          console.log("Retrying the RPC Call for block: ",height);
-          const turnsLeft = retries - 1;
-          console.log("Remaining retries: ",turnsLeft);
-          return await getblockData(height,turnsLeft);
-        }
-        else{
-          console.log("Retry calls got greater than 10 ... throwing error ");
-          throw error;
-        }
-    });
-  }
-  else
-  {
-    return false;
-  }
+    let data= await eventsReplayDataModel.find({blockHeight:height});
+    if(data.length == 0 || data[0].blockData.block.body.deploy_hashes.length != data.length)
+    {
+      console.log("Fetching block : \n",height);
+      let blocksResponse=await casperService.getBlockInfoByHeight(height);
+      console.log("Block Fetched : \n",blocksResponse.block.header.height);
+      return blocksResponse;
+    }
+    else
+    {
+      return false;
+    }
+  } catch (error) {
+    console.log("RPC failed: in fecthing blockData "+height);
+    console.log("error is : ",error);
+    if (retries > 0) {
+      console.log("Retrying the RPC Call for block: ",height);
+      const turnsLeft = retries - 1;
+      console.log("Remaining retries: ",turnsLeft);
+      return await getblockData(height,turnsLeft);
+    }
+    else{
+      console.log("Retry calls got greater than 10 ... throwing error ");
+      throw error;
+    }
+  } 
 }
 
 // to get the deploy Data of a node against deployHash and insert to Database
-async function getdeployDataAndInsertInDatabase(deployHash,height,blocksResponse,retries = 10) {
+async function getdeployDataAndInsertInDatabase(deployHash,height,blocksResponse,retries = process.env.RETRIES) {
+ try {
     console.log("Fetching deploy : \n",deployHash);
-    casperService.getDeployInfo(deployHash)
-    .then(async function (deploysResponse) {
-      console.log("Deploy fetched: \n",deployHash);
-      var newData= new eventsReplayDataModel({
-                  blockHeight:height,
-                  blockData:blocksResponse,
-                  deployData:deploysResponse,
-                  status:"Added"
-      });
-      await eventsReplayDataModel.create(newData);
-    })
-    .catch(async function (error){
-      console.log("RPC failed: in fecthing latest deployHash: ",deployHash);
-      console.log("error is : ",error);
-      if (retries > 0) {
-        console.log("Retrying the RPC Call for deployHash: ",deployHash);
-        const turnsLeft = retries - 1;
-        console.log("Remaining retries: ",turnsLeft);
-        getdeployDataAndInsertInDatabase(deployHash,height,blocksResponse,turnsLeft);
-      }
-      else{
-        console.log("Retry calls got greater than 10 ... throwing error ");
-        throw error;
-      }
+    let deploysResponse=await casperService.getDeployInfo(deployHash);
+    console.log("Deploy fetched: \n",deployHash);
+    var newData= new eventsReplayDataModel({
+      blockHeight:height,
+      blockData:blocksResponse,
+      deployData:deploysResponse,
+      status:"Added"
     });
+    await eventsReplayDataModel.create(newData);
+ } catch (error) {
+    console.log("RPC failed: in fecthing latest deployHash: ",deployHash);
+    console.log("error is : ",error);
+    if (retries > 0) {
+      console.log("Retrying the RPC Call for deployHash: ",deployHash);
+      const turnsLeft = retries - 1;
+      console.log("Remaining retries: ",turnsLeft);
+      await getdeployDataAndInsertInDatabase(deployHash,height,blocksResponse,turnsLeft);
+    }
+    else{
+      console.log("Retry calls got greater than 10 ... throwing error ");
+      throw error;
+    }
+ }   
 }
+
+//factory object to create the pool
+const factory = {
+  create: function () {
+    console.log("factory create");
+    return {};
+  },
+  destroy: function () {
+    console.log("factory destroy");
+    return true;
+  }
+};
+
+const opts = {
+  max: process.env.POOLSIZE, // maximum size of the pool
+};
 
 //This function fetch required blocks and deploys data and insert in Redis HashMap
 async function fetchBlocksAndDeploysData(lastBlock,latestBlock) {
   try {
-
       console.log("In fetch function...");
-      let start=lastBlock;
-      let end=lastBlock;
-      let noOfBlocksToQuery=1;
-      if(latestBlock-lastBlock>=5)
-      {
-        noOfBlocksToQuery=5;
-      }
-      while(lastBlock<=latestBlock)
-      {   
-          if((end+noOfBlocksToQuery)>(latestBlock))
-          {
-              if(((end+noOfBlocksToQuery)-latestBlock)<=5)
-              {
-                noOfBlocksToQuery=1;
-              }
-              else{
-               
-                break;
-              }
-          }
-          start=end;
-          end=end+noOfBlocksToQuery;
-          console.log("start: ",start);
-          console.log("end: ",end);
-          console.log("lastBlock: ",lastBlock);
-          
-          for (var i = start; i < end; i++) {
-            getblockData(i)
-            .then(async function (blocksResponse) {
-              if(blocksResponse!=undefined)
-              {
-                console.log("blocksResponse: ",blocksResponse);
+      console.log("Start Block: ",lastBlock);
+      console.log("End Block: ",latestBlock);
+      let myPool = genericPool.createPool(factory, opts);
+      for (var i = lastBlock; i < latestBlock; i++) {
+        let blockResource=await myPool.acquire();
+          getblockData(i)
+          .then(async function(blocksResponse) {
+            if(blocksResponse != false){
                 let height,deployHashes;
-                if(blocksResponse != false){
-                  height=blocksResponse.block.header.height;
-                  deployHashes = blocksResponse.block.body.deploy_hashes;
-                  console.log("Block fetched: \n",height);
-                  if (deployHashes.length != 0) {
+                height=blocksResponse.block.header.height;
+                deployHashes = blocksResponse.block.body.deploy_hashes;
+                if (deployHashes.length != 0) {
                     let data= await eventsReplayDataModel.find({blockHeight:height});
                     for (var j = 0; j < deployHashes.length; j++) {
                       let flag=0;
@@ -416,20 +409,41 @@ async function fetchBlocksAndDeploysData(lastBlock,latestBlock) {
                         for (var k=0;k<data.length;k++)
                         {
                           if (data[k].deployData.deploy.hash === deployHashes[j]) {
-                            flag=1;
+                                flag=1;
                           }
                         }
                       }
                       if(flag==0)
                       {
-                        getdeployDataAndInsertInDatabase(deployHashes[j],height,blocksResponse);
+                        let deployResource= await myPool.acquire();
+                         getdeployDataAndInsertInDatabase(deployHashes[j],height,blocksResponse)
+                         .then(async function(result) {
+                            // return resource back to pool      
+                              await myPool.release(deployResource)
+                              .catch(function (err) {
+                                  console.log("err=>", err);
+                              });
+                         });
                       }
                       else{
-                        console.log("Deploy's Data already fetched from RPC server...");
+                          console.log("Deploy's Data already fetched from RPC server...");
+                      }
+                      let resourcesAvailable=myPool.available;
+                      let poolSize=myPool.size;
+                      console.log("resourcesAvailable: ",resourcesAvailable);
+                      console.log("poolSize: ",poolSize);
+                      if(poolSize==process.env.POOLSIZE && resourcesAvailable == 0)
+                      {
+                        while(resourcesAvailable == 0)
+                        {
+                          console.log("waiting for resources availability...");
+                          await sleep(2000);
+                          resourcesAvailable=myPool.available;
+                        }
                       }
                     }
-                  }
-                  else{
+                }
+                else{
                     let blockData={
                       block:{
                         body:{
@@ -442,27 +456,31 @@ async function fetchBlocksAndDeploysData(lastBlock,latestBlock) {
                       blockData:blockData,
                     });
                     await eventsReplayDataModel.create(newData);
-                  }
                 }
-                else{
-                  console.log("Block Data already fetched from RPC server and filtered.");
-                }
-              }
-            });
-          }
-          let flag=0;
-          while(flag==0)
-          {
-            if(noOfBlocksToQuery==1)
-            {
-              await sleep(2000);
             }
             else{
-              await sleep(5000);
+                console.log("Block Data already fetched from RPC server and filtered.");
             }
-            flag=1;
+            // return resource back to pool 
+            await myPool.release(blockResource)
+            .catch(function (err) {
+              console.log("err=>", err);
+            });
+
+          });
+          let resourcesAvailable=myPool.available;
+          let poolSize=myPool.size;
+          console.log("resourcesAvailable: ",resourcesAvailable);
+          console.log("poolSize: ",poolSize);
+          if(poolSize==process.env.POOLSIZE && resourcesAvailable ==0)
+          {
+            while(resourcesAvailable == 0)
+            {
+              console.log("waiting for resources availability...");
+              await sleep(2000);
+              resourcesAvailable=myPool.available;
+            }
           }
-          lastBlock=lastBlock+noOfBlocksToQuery;
       }
   }
   catch (error) {
@@ -665,7 +683,7 @@ async function timeDiff()
     let currentDate = new Date().getTime();
     console.log("LatestTime: ",currentDate);
     let diff=currentDate-timeAtShutDown;
-    
+    diff=16000000;
     if(diff > process.env.TTL && timeAtShutDown!= null){
       console.log("Time Difference is greater than 25 minutes..");
       return true;
@@ -722,14 +740,15 @@ async function checkIfEventsMissed()
     console.log("iseventsReplay: ",iseventsReplay);
     console.log("lastBlock: ",lastBlock);
 
-    if(iseventsReplay == "true" && (lastBlock != null || lastBlock != "null") )
+    if(iseventsReplay == "true" || (lastBlock != null || lastBlock != "null") )
     {
       console.log("Starting Events Reply...");
 
       var interval = setInterval(() => {
       pushEventsToKafka(process.env.LISTENERREDISEVENTSREPLAYQUEUE);
       }, 2000);
-
+      lastBlock="692104";
+      latestBlock="692204";
       fetchBlocksAndDeploysData(parseInt(lastBlock),parseInt(latestBlock));
       await addPackageHashes();
       console.log("packagesHashes :", PackageHashes);
