@@ -31,10 +31,6 @@ var serialize = require('serialize-javascript');
 //import library to create pool to limit no of connections to RPC
 const genericPool = require("generic-pool");
 
-// import library abort controller
-var {AbortController} =require("node-abort-controller");
-const { modelName } = require('../models/eventsReplayData');
-
 //for global use
 var contractsPackageHashes=[];
 var PackageHashes=[];
@@ -263,93 +259,290 @@ async function pushEventsToKafka(queue)
 
 //this code is for replay Events if server goes down, (under testing) 
 // to get the latest block height of a node
-async function getLatestBlockHeight() {
+async function getLatestBlockHeight(retry) {
   try {
-    const latestBlockInfoResult = await casperService.getLatestBlockInfo();
-    return latestBlockInfoResult.block.header.height;
+   
+      const interval = setTimeout(function () {
+        retry.rpcNotResponded=true;
+        console.log("RPC not responded for block: ",height);
+      }, 30000);
+
+      let flag=0;
+      let latestBlockInfoResult=null;
+      casperService.getLatestBlockInfo()
+      .then(function(blockData) {
+        latestBlockInfoResult=blockData.block.header.height;
+        flag=1;
+      })
+      .catch(function(error) {
+        console.log("RPC failed: in fecthing latest blockData");
+        console.log("error is : ",error);
+        retry.rpcFailed =true;
+      });
+      
+      while( flag == 0 && retry.rpcNotResponded == false && retry.rpcFailed == false)
+      {
+        console.log("Checking for RPC response Type...");
+        await sleep(1000);
+      }
+
+      if(flag == 1)
+      {
+        clearInterval(interval);
+        return latestBlockInfoResult;
+      }
+      else if(retry.rpcNotResponded == true || retry.rpcFailed == true)
+      {
+        return false;
+      }
 
   } catch (error) {
-    console.log("RPC failed: in fecthing latest blockData");
     console.log("error is : ",error);
-    console.log("Retrying the RPC Call for latest blockData");
-    return await getLatestBlockHeight();
+  }
+}
+
+// This function is to retry latest block Height upon RPC Failures
+async function fetchLatestBlockHeightHelper()
+{
+  try {
+
+    let retry=
+    {
+      rpcFailed:false,
+      rpcNotResponded:false
+    };
+    let blockResult=await getLatestBlockHeight(retry);
+    
+    if(blockResult == false)
+    {
+      if(retry.rpcNotResponded == true || retry.rpcFailed == true)
+      {
+        while(blockResult == false)
+        {
+          retry.rpcFailed=false;
+          retry.rpcNotResponded=false;
+          console.log("Retrying the RPC Call for latest blockData...");
+          blockResult=await getLatestBlockHeight(retry);
+        }
+        console.log("Retrying Attempts to fetch latest blockData is Successfull...");
+        return blockResult;
+      }
+    }
+    else{
+      return blockResult;
+    }
+  
+  } catch (error) {
+    console.log("Error : ",error);
   }
 }
 
 // to get the last block height when the server shut down
-async function getLastBlockHeight() {
+async function getLastBlockHeight(retry) {
   try {
-    let lastBlock= await redis.client.GET(process.env.LASTBLOCK);
-    if(lastBlock==null)
+      let lastBlock= await redis.client.GET(process.env.LASTBLOCK);
+      if(lastBlock==null)
+      {
+        return null;
+      }
+      else{
+
+        const interval = setTimeout(function () {
+          retry.rpcNotResponded=true;
+          console.log("RPC not responded for block: ",height);
+        }, 30000);
+  
+        let flag=0;
+        let lastBlockInfoResult=null;
+        casperService.getBlockInfo(lastBlock)
+        .then(function(blockData) {
+          lastBlockInfoResult=blockData.block.header.height;
+          flag=1;
+        })
+        .catch(function(error) {
+          console.log("RPC failed: in fecthing last blockData");
+          console.log("error is : ",error);
+          retry.rpcFailed =true;
+        });
+        
+        while( flag == 0 && retry.rpcNotResponded == false && retry.rpcFailed == false)
+        {
+          console.log("Checking for RPC response Type...");
+          await sleep(1000);
+        }
+  
+        if(flag == 1)
+        {
+          clearInterval(interval);
+          return lastBlockInfoResult;
+        }
+        else if(retry.rpcNotResponded == true || retry.rpcFailed == true)
+        {
+          return false;
+        }
+      }
+
+  } catch (error) {
+    console.log("error is : ",error);
+  }
+}
+
+// This function is to retry last block Height upon RPC Failures
+async function fetchLastBlockHeightHelper()
+{
+  try {
+
+    let retry=
     {
-      return null;
+      rpcFailed:false,
+      rpcNotResponded:false
+    };
+    let blockResult=await getLastBlockHeight(retry);
+    
+    if(blockResult == false)
+    {
+      if(retry.rpcNotResponded == true || retry.rpcFailed == true)
+      {
+        while(blockResult == false)
+        {
+          retry.rpcFailed=false;
+          retry.rpcNotResponded=false;
+          console.log("Retrying the RPC Call for last blockData...");
+          blockResult=await getLastBlockHeight(retry);
+        }
+        console.log("Retrying Attempts to fetch last blockData is Successfull...");
+        return blockResult;
+      }
     }
     else{
-      const lastBlockInfoResult = await casperService.getBlockInfo(lastBlock);
-      return lastBlockInfoResult.block.header.height;
+      return blockResult;
     }
+  
   } catch (error) {
-    console.log("RPC failed: in fecthing last blockData");
-    console.log("error is : ",error);
-    console.log("Retrying the RPC Call for last blockData");
-    return await getLastBlockHeight();
+    console.log("Error : ",error);
   }
 }
 
 // to get block data of a node against block height
-async function getblockData(height) {
+async function getblockData(height,retry) {
   try {
-    const controller = new AbortController();
-    const { signal } = controller;
 
     let data= await eventsReplayDataModel.find({blockHeight:height});
     if(data.length == 0 || data[0].blockData.block.body.deploy_hashes.length != data.length)
     {
 
       console.log("Fetching block : \n",height);
-      const interval = setTimeout(async function () {
-        controller.abort();
+      const interval = setTimeout(function () {
+        retry.rpcNotResponded=true;
         console.log("RPC not responded for block: ",height);
-        console.log("Retrying the RPC Call for block: ",height);
-        return await getblockData(height);
       }, 30000);
 
-      let blockResponse= await casperService.getBlockInfoByHeight(height,{signal});
-      if(blockResponse!=undefined)
+      let flag=0;
+      let blockResponse=null;
+      casperService.getBlockInfoByHeight(height)
+      .then(function(blockData) {
+        blockResponse=blockData;
+        flag=1;
+      })
+      .catch(function(error) {
+        console.log("RPC failed: in fecthing blockData "+height);
+        console.log("error is : ",error);
+        retry.rpcFailed =true;
+      });
+      
+      while( flag == 0 && retry.rpcNotResponded == false && retry.rpcFailed == false)
+      {
+        console.log("Checking for RPC response Type...");
+        await sleep(1000);
+      }
+
+      if(flag == 1)
       {
         clearInterval(interval);
         return blockResponse;
       }
+      else if(retry.rpcNotResponded == true || retry.rpcFailed == true)
+      {
+        return false;
+      }
+
     }
     else
     {
       return true;
     }
+
   } catch (error) {
-    console.log("RPC failed: in fecthing blockData "+height);
-    console.log("error is : ",error);
-    console.log("Retrying the RPC Call for block: ",height);
-    return await getblockData(height);
+    console.log("error : ",error);
   } 
 }
 
+// This function is to retry blockData upon RPC Failures
+async function fetchBlockDataHelper(i)
+{
+  try {
+
+    let retry=
+    {
+      rpcFailed:false,
+      rpcNotResponded:false
+    };
+    let blockResult=await getblockData(i,retry);
+    
+    if(blockResult == false)
+    {
+      if(retry.rpcNotResponded == true || retry.rpcFailed == true)
+      {
+        while(blockResult == false)
+        {
+          retry.rpcFailed=false;
+          retry.rpcNotResponded=false;
+          console.log("Retrying the RPC Call for block: ",i);
+          blockResult=await getblockData(i,retry);
+        }
+        console.log("Retrying Attempts to fetch blockData is Successfull : ",i);
+        return blockResult;
+      }
+    }
+    else{
+      return blockResult;
+    }
+  
+  } catch (error) {
+    console.log("Error : ",error);
+  }
+}
+
 // to get the deploy Data of a node against deployHash and insert to Database
-async function getdeployDataAndInsertInDatabase(deployHash,height,blocksResponse) {
+async function getdeployDataAndInsertInDatabase(deployHash,height,blocksResponse,retry) {
  try {
 
-    const controller = new AbortController();
-    const { signal } = controller;
-
     console.log("Fetching deploy : \n",deployHash);
-    const interval = setTimeout(async function () {
-      controller.abort();
+    const interval = setTimeout(function () {
+      retry.rpcNotResponded=true;
       console.log("RPC not responded for deployHash: ",deployHash);
-      console.log("Retrying the RPC Call for deployHash: ",deployHash);
-      return await getdeployDataAndInsertInDatabase(deployHash,height,blocksResponse);
     },30000);
 
-    let deploysResponse=await casperService.getDeployInfo(deployHash,{signal});
-    if(deploysResponse!=undefined)
+    let flag=0;
+    let deploysResponse=null;
+    casperService.getDeployInfo(deployHash)
+    .then(function(deployData) {
+      deploysResponse=deployData;
+      flag=1;
+    })
+    .catch(function(error) {
+      console.log("RPC failed: in fecthing the deployHash Data : ",deployHash);
+      console.log("error is : ",error);
+      retry.rpcFailed =true;
+    });
+      
+    while( flag == 0 && retry.rpcNotResponded == false && retry.rpcFailed == false)
+    {
+      console.log("Checking for RPC response Type...");
+      await sleep(1000);
+    }
+
+    if(flag == 1)
     {
       clearInterval(interval);
       var newData= new eventsReplayDataModel({
@@ -361,13 +554,72 @@ async function getdeployDataAndInsertInDatabase(deployHash,height,blocksResponse
       await eventsReplayDataModel.create(newData);
       return {height,deployHash};
     }
+    else if(retry.rpcNotResponded == true || retry.rpcFailed == true)
+    {
+      return false;
+    }
     
  } catch (error) {
-    console.log("RPC failed: in fecthing latest deployHash: ",deployHash);
-    console.log("error is : ",error);
-    console.log("Retrying the RPC Call for deployHash: ",deployHash);
-    return await getdeployDataAndInsertInDatabase(deployHash,height,blocksResponse);
+    console.log("error: ",error);
  }   
+
+}
+
+// This function is to retry deployData upon RPC failure
+async function fetchDeployDataHelper(deployHash,height,blocksResponse)
+{
+  try {
+
+    let retry=
+    {
+      rpcFailed:false,
+      rpcNotResponded:false
+    };
+    let deployResult=await getdeployDataAndInsertInDatabase(deployHash,height,blocksResponse,retry);
+    
+    if(deployResult == false)
+    {
+      if(retry.rpcNotResponded == true || retry.rpcFailed == true)
+      {
+        while(deployResult == false)
+        {
+          retry.rpcFailed=false;
+          retry.rpcNotResponded=false;
+          console.log("Retrying the RPC Call for deployHash: ",deployHash);
+          deployResult=await getdeployDataAndInsertInDatabase(deployHash,height,blocksResponse,retry);
+        }
+        console.log("Retrying Attempts to fetch deployData is Successfull : ",deployHash);
+        return deployResult;
+      }
+    }
+    else{
+      return deployResult;
+    }
+
+  } catch (error) {
+    console.log("Error : ",error);
+  }
+}
+//This function is to open thread for fetching deployData
+async function threadForFetchingDeploysData(myPool,deployHash,height,blocksResponse)
+{
+  try {
+    myPool.acquire()
+    .then(async function(deployResource) {
+      try {
+        let deployResponse = await fetchDeployDataHelper(deployHash,height,blocksResponse);
+        console.log("Successfully fetched and saved data in database block: "+ deployResponse.height+" deployHash: "+ deployResponse.deployHash);
+        myPool.release(deployResource);  
+      } catch (error) {
+        console.log("Error : ",error);
+      }
+    })
+    .catch(function(error) {
+      console.log("Error : ",error);
+    })
+  } catch (error) {
+    console.log("Error : ",error);
+  }
 }
 
 //factory object to create the pool
@@ -382,54 +634,44 @@ const factory = {
   }
 };
 
-const opts = {
-  max: process.env.POOLSIZE, // maximum size of the pool
+const opts1 = {
+  max: process.env.BLOCKSPOOLSIZE, // maximum size of the pool
+};
+
+const opts2 = {
+  max: process.env.DEPLOYSPOOLSIZE, // maximum size of the pool
 };
 
 async function checkResoureAvailibity(myPool)
 {
-  let resourcesAvailable=myPool.available;
-  let poolSize=myPool.size;
-  console.log("resourcesAvailable: ",resourcesAvailable);
-  console.log("poolSize: ",poolSize);
-  if(poolSize==process.env.POOLSIZE && resourcesAvailable ==0)
-  {
-    while(resourcesAvailable == 0)
+  try {
+    let resourcesAvailable=myPool.available;
+    let poolSize=myPool.size;
+    console.log("resourcesAvailable: ",resourcesAvailable);
+    console.log("poolSize: ",poolSize);
+    if(poolSize==process.env.POOLSIZE && resourcesAvailable ==0)
     {
-      console.log("waiting for resources availability...");
-      await sleep(2000);
-      resourcesAvailable=myPool.available;
-    }
-  }
-}
-async function fetchDeploysDataHelper(myPool,deployHash,height,blocksResponse)
-{
-  try {
-    myPool.acquire()
-    .then(async function(deployResource) {
-      try {
-        let deployResponse = await getdeployDataAndInsertInDatabase(deployHash,height,blocksResponse);
-        console.log("Successfully fetched and saved data in database block: "+ deployResponse.height+" deployHash: "+ deployResponse.deployHash);
-        myPool.release(deployResource);  
-      } catch (error) {
-        console.log("Error : ",error);
+      while(resourcesAvailable == 0)
+      {
+        console.log("waiting for resources availability...");
+        await sleep(1000);
+        resourcesAvailable=myPool.available;
       }
-    })
-    .catch(function(error) {
-      console.log("Error : ",error);
-    })
+    }
   } catch (error) {
-    
+    console.log("Error : ",error);
   }
+  
 }
+
 //This is a helper function to fetchBlocksAndDeploysData
-async function fetchBlocksAndDeploysDataHelper(i,myPool) {
+async function fetchBlocksAndDeploysDataHelper(i,blockPool,deployPool) {
   try {
-        myPool.acquire() 
+        blockPool.acquire() 
         .then(async function(blockResource) {
           try {
-              let blocksResponse= await getblockData(i);
-              myPool.release(blockResource);
+              let blocksResponse= await fetchBlockDataHelper(i);
+              blockPool.release(blockResource);
               if(blocksResponse != true){
                 console.log("Block Fetched : \n",blocksResponse.block.header.height);
                 let height,deployHashes;
@@ -450,8 +692,8 @@ async function fetchBlocksAndDeploysDataHelper(i,myPool) {
                       }
                       if(flag==0)
                       {
-                        await checkResoureAvailibity(myPool);
-                        fetchDeploysDataHelper(myPool,deployHashes[j],height,blocksResponse)
+                        await checkResoureAvailibity(deployPool);
+                        threadForFetchingDeploysData(deployPool,deployHashes[j],height,blocksResponse)
                         .catch(function(error) {
                           console.log("Error : ",error);
                         })
@@ -498,13 +740,14 @@ async function fetchBlocksAndDeploysData(lastBlock,latestBlock) {
       console.log("In fetch function...");
       console.log("Start Block: ",lastBlock);
       console.log("End Block: ",latestBlock);
-      let myPool = genericPool.createPool(factory, opts);
+      let blockPool = genericPool.createPool(factory, opts1);
+      let deployPool = genericPool.createPool(factory, opts2);
       for (var i = lastBlock; i <= latestBlock; i++) {
-        fetchBlocksAndDeploysDataHelper(i,myPool)
+        fetchBlocksAndDeploysDataHelper(i,blockPool,deployPool)
         .catch(function(error) {
           console.log("Error : ",error);
         });
-        await checkResoureAvailibity(myPool);
+        await checkResoureAvailibity(blockPool);
       }
   }
   catch (error) {
@@ -548,7 +791,7 @@ async function checkingSpecificBlockData(height){
       {
         console.log("Block-"+height+" waiting for its data");
         eventsReplayData= await eventsReplayDataModel.find({blockHeight:height});
-        await sleep(2000);
+        await sleep(5000);
       }
       
       console.log("Found BlockData "+ height);
@@ -572,7 +815,7 @@ async function checkingDeployDatawithDeployHashes(height,data){
       {
         console.log("Block-"+height+" waiting for deployHashes length gets equal "+data[0].blockData.block.body.deploy_hashes.length +"-"+ data.length);
         data= await eventsReplayDataModel.find({blockHeight:height});
-        await sleep(2000);
+        await sleep(5000);
       }
       console.log("Found All DeploysData "+ height);
       return data;
@@ -736,7 +979,7 @@ async function checkIfEventsMissed()
       {
         await redis.client.SET(process.env.EVENTSREPLAYSTATUS,"PROGRESS");
 
-        lastBlock= await getLastBlockHeight();
+        lastBlock= await fetchLastBlockHeightHelper();
         console.log("lastBlock height is : ",lastBlock);
         if(lastBlock==null)
         {
@@ -746,7 +989,7 @@ async function checkIfEventsMissed()
           await redis.client.SET(process.env.LASTBLOCKFOREVENTSREPLAY,lastBlock.toString());
         }
         
-        latestBlock= await getLatestBlockHeight();
+        latestBlock= await fetchLatestBlockHeightHelper();
         console.log("Latest Block height is : ",latestBlock);
         await redis.client.SET(process.env.LASTESTBLOCK,latestBlock.toString());
       }
@@ -758,7 +1001,7 @@ async function checkIfEventsMissed()
     let latestTimeCheck=await timeDiff();
     if (latestTimeCheck)
     {
-      latestBlock= await getLatestBlockHeight();
+      latestBlock= await fetchLatestBlockHeightHelper();
       console.log("Latest Block height is : ",latestBlock);
       await redis.client.SET(process.env.LASTESTBLOCK,latestBlock.toString());
     }
@@ -769,7 +1012,8 @@ async function checkIfEventsMissed()
     {
       console.log("Starting Events Reply...");
       lastBlock="692104";
-      latestBlock="695104";
+      latestBlock="697104";
+
       fetchBlocksAndDeploysData(parseInt(lastBlock),parseInt(latestBlock))
       .then(async function (response) {
         console.log("Fetching Blocks and Deploys Data Successfull...");
@@ -777,12 +1021,15 @@ async function checkIfEventsMissed()
       .catch(function(error) {
         console.log("Error : ",error);
       });
+
       let interval=setInterval(() => {
         pushEventsToKafka(process.env.LISTENERREDISEVENTSREPLAYQUEUE);
       }, 2000);
+
       await addPackageHashes();
       console.log("packagesHashes :", PackageHashes);
       contractsPackageHashes =PackageHashes.map((h) => h.toLowerCase());
+
       filterEventsReplayModel(parseInt(lastBlock),parseInt(latestBlock))
       .then(async function (response) {
         let eventsReplayresult=response;
