@@ -899,7 +899,7 @@ async function filterEventsReplayModel(lastBlock,latestBlock) {
                               console.log("Data: ",acc[0].eventsdata);
           
                               //push event to redis queue
-                              //redis.client.RPUSH(process.env.LISTENERREDISEVENTSREPLAYQUEUE,serialize({obj: acc[0]}));
+                              redis.client.RPUSH(process.env.LISTENERREDISEVENTSREPLAYQUEUE,serialize({obj: acc[0]}));
           
                             }
                             else{
@@ -951,7 +951,7 @@ async function timeDiff()
     let currentDate = new Date().getTime();
     console.log("LatestTime: ",currentDate);
     let diff=currentDate-timeAtShutDown;
-    diff=16000000;
+
     if(diff > process.env.TTL && timeAtShutDown!= null){
       console.log("Time Difference is greater than 25 minutes..");
       return true;
@@ -1008,11 +1008,9 @@ async function checkIfEventsMissed()
     console.log("iseventsReplay: ",iseventsReplay);
     console.log("lastBlock: ",lastBlock);
 
-    if(iseventsReplay == "true" || (lastBlock != null || lastBlock != "null") )
+    if(iseventsReplay == "true" && (lastBlock != null || lastBlock != "null") )
     {
       console.log("Starting Events Reply...");
-      lastBlock="692104";
-      latestBlock="697104";
 
       fetchBlocksAndDeploysData(parseInt(lastBlock),parseInt(latestBlock))
       .then(async function (response) {
