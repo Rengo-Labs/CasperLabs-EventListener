@@ -71,7 +71,6 @@ async function addPackageHashes() {
 
 async function listener()
 {
-  try {
     await addPackageHashes();
     console.log("packagesHashes :", PackageHashes);
 
@@ -137,9 +136,6 @@ async function listener()
     
     es.start();
     console.log("Listener initiated...");
-  } catch (error) {
-    throw error;
-  }
 }
 
 async function startEventListener(){
@@ -1008,7 +1004,7 @@ async function checkIfEventsMissed()
     console.log("iseventsReplay: ",iseventsReplay);
     console.log("lastBlock: ",lastBlock);
 
-    if(iseventsReplay == "true" && (lastBlock != null || lastBlock != "null") )
+    if(iseventsReplay == "true" && (lastBlock != null && lastBlock != "null") )
     {
       console.log("Starting Events Reply...");
 
