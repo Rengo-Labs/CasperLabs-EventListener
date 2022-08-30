@@ -71,6 +71,7 @@ async function addPackageHashes() {
 
 async function listener()
 {
+  try {
     await addPackageHashes();
     console.log("packagesHashes :", PackageHashes);
 
@@ -136,11 +137,19 @@ async function listener()
     
     es.start();
     console.log("Listener initiated...");
+  } catch (error) {
+    console.log("error: ", error);
+  } 
 }
 
 async function startEventListener(){
-  await sleep(15000);
-  listener();
+  try {
+    await sleep(15000);
+    await listener();
+   
+  } catch (error) {
+    console.log("error: ", error);
+  } 
 }
 startEventListener();
 
