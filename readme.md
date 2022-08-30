@@ -21,5 +21,5 @@ To package and run this application with node, you'll need to:
 Listener Architecture Documentation: 
 https://docs.google.com/document/d/1eiP_UrAI2vrevCzMLlosOp23WibxohCiv6BirpU99V0/edit?usp=sharing
 
-AWS Link: http://casperswaplistenerbackend-env.eba-rbumbt2m.us-east-1.elasticbeanstalk.com/
+AWS Link: http://listenerbackendfinalized-env.eba-ifnuiiq5.us-east-1.elasticbeanstalk.com/
 
