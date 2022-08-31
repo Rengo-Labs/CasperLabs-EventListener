@@ -6,10 +6,15 @@ const { EventStream, EventName, CLValueBuilder, CLValueParsers, CLMap, CasperSer
 //for all env variables imports
 require("dotenv").config();
 
+//import mongoose library
+const mongoose = require("mongoose");
+
 // importing models
 var packageHashesData = require("../models/packageHashes");
 var eventsDataModel = require("../models/eventsData");
 var eventsReplayDataModel = require("../models/eventsReplayData");
+var eventReplayStatusModel = require("../models/eventReplayStatus");
+var eventsReplayStatusesModel = require("../models/eventsReplayStatuses");
 
 //seting up kafka
 //setting up a producer
@@ -51,7 +56,7 @@ const sleep = (num) => {
 };
 
 //to retrieve packageHashes from database and add them to the listener
-async function addPackageHashes() {
+async function findPackageHashesAndUpdateArray() {
   try {
     let Hashes = await packageHashesData.findOne({ id: "0" });
     if (Hashes == null) {
@@ -72,7 +77,7 @@ async function addPackageHashes() {
 async function listener()
 {
   try {
-    await addPackageHashes();
+    await findPackageHashesAndUpdateArray();
     console.log("packagesHashes :", PackageHashes);
 
     const es = new EventStream(process.env.EVENTSTREAM_URL);
@@ -153,7 +158,7 @@ async function startEventListener(){
 }
 startEventListener();
 
-async function saveEventInDataBase(deployHash,eventName,timestamp,blockHash,eventsdata)
+async function saveEventInDatabase(deployHash,eventName,timestamp,blockHash,eventsdata)
 {
   try {
     let eventResult= new eventsDataModel ({
@@ -183,7 +188,7 @@ async function produceInKafka(data,eventResult,queue)
   }
 }
 
-async function pushEventsToKafka(queue)
+async function popAndProcessEventsFromRedisQueue(queue)
 {
   try {
     if(queuePopFlag==0)
@@ -216,7 +221,7 @@ async function pushEventsToKafka(queue)
               {
                   console.log("Event is New, producing in kafka...");
                   //store new event Data
-                  let result =await saveEventInDataBase(deserializedHeadValue.deployHash,deserializedHeadValue.eventName,deserializedHeadValue.timestamp,deserializedHeadValue.block_hash,deserializedHeadValue.eventsdata);
+                  let result =await saveEventInDatabase(deserializedHeadValue.deployHash,deserializedHeadValue.eventName,deserializedHeadValue.timestamp,deserializedHeadValue.block_hash,deserializedHeadValue.eventsdata);
                   //produce read Event to kafka
                   await produceInKafka(deserializedHeadValue,result);
               }
@@ -226,7 +231,7 @@ async function pushEventsToKafka(queue)
                   {
                     console.log("Event has same EventName, producing in kafka...");
                     //store new event Data
-                    let result =await saveEventInDataBase(deserializedHeadValue.deployHash,deserializedHeadValue.eventName,deserializedHeadValue.timestamp,deserializedHeadValue.block_hash,deserializedHeadValue.eventsdata);
+                    let result =await saveEventInDatabase(deserializedHeadValue.deployHash,deserializedHeadValue.eventName,deserializedHeadValue.timestamp,deserializedHeadValue.block_hash,deserializedHeadValue.eventsdata);
                     result.eventType="same";
                     eventResult.eventType="same";
                     await result.save();
@@ -811,7 +816,7 @@ async function checkingSpecificBlockData(height){
   }
 }
 
-async function checkingDeployDatawithDeployHashes(height,data){
+async function checkingDeployDataWithDeployHashes(height,data){
   try {
 
     if(data[0].blockData.block.body.deploy_hashes.length != data.length)
@@ -847,7 +852,7 @@ async function filterEventsReplayModel(lastBlock,latestBlock) {
             console.log("outside while 1");
             if(data[0].blockData.block.body.deploy_hashes[0]!="0")
             {
-              data=await checkingDeployDatawithDeployHashes(i,data);
+              data=await checkingDeployDataWithDeployHashes(i,data);
               console.log("outside while 2");
               for(var j=0;j<data[0].blockData.block.body.deploy_hashes.length;j++)
               {
@@ -946,9 +951,9 @@ async function updateTime()
 }
 setInterval(() => {
   updateTime();
-},5000);
+},10000);
 
-async function timeDiff()
+async function calculatingServerShutdownTime()
 {
   try {
     let timeAtShutDown=await redis.client.GET(process.env.TIMEATSHUTDOWN);
@@ -956,7 +961,7 @@ async function timeDiff()
     let currentDate = new Date().getTime();
     console.log("LatestTime: ",currentDate);
     let diff=currentDate-timeAtShutDown;
-
+   
     if(diff > process.env.TTL && timeAtShutDown!= null){
       console.log("Time Difference is greater than 25 minutes..");
       return true;
@@ -972,52 +977,94 @@ async function timeDiff()
 //This function is to syncUp both EventStream and EventsReplay Features
 async function checkIfEventsMissed()
 {
+  const session = await mongoose.startSession();
+  //starting the transaction
+  session.startTransaction();
+
   try {
 
-    let eventsReplayStatus = await redis.client.GET(process.env.EVENTSREPLAYSTATUS);
     let iseventsReplay,lastBlock,latestBlock; 
-    if(eventsReplayStatus == null || eventsReplayStatus == "DONE")
+    let eventReplayStatusData= await eventReplayStatusModel.findOne({id:"0"});
+    let eventReplayStatusesData= await eventsReplayStatusesModel.findOne({id:"0"});
+
+    if(eventReplayStatusData == null || eventReplayStatusData.eventsReplayStatus == "DONE")
     {
-      iseventsReplay=await timeDiff();
-      await redis.client.SET(process.env.TIMEFOREVENTSREPLAY,iseventsReplay.toString());
-      if(iseventsReplay)
-      {
-        await redis.client.SET(process.env.EVENTSREPLAYSTATUS,"PROGRESS");
+      iseventsReplay=await calculatingServerShutdownTime();
+      if(iseventsReplay == true )
+      { 
+       
+        eventReplayStatusesData.timeForEventsReplay=iseventsReplay;
 
         lastBlock= await fetchLastBlockHeightHelper();
         console.log("lastBlock height is : ",lastBlock);
-        if(lastBlock==null)
-        {
-          await redis.client.SET(process.env.LASTBLOCKFOREVENTSREPLAY,"null");
-        }
-        else{
-          await redis.client.SET(process.env.LASTBLOCKFOREVENTSREPLAY,lastBlock.toString());
-        }
-        
+        eventReplayStatusesData.lastBlockForEventsReplay=lastBlock;
+     
         latestBlock= await fetchLatestBlockHeightHelper();
         console.log("Latest Block height is : ",latestBlock);
-        await redis.client.SET(process.env.LASTESTBLOCK,latestBlock.toString());
-      }
-    }
-    iseventsReplay=await redis.client.GET(process.env.TIMEFOREVENTSREPLAY);
-    lastBlock = await redis.client.GET(process.env.LASTBLOCKFOREVENTSREPLAY);
-    latestBlock = await redis.client.GET(process.env.LASTESTBLOCK);
+        eventReplayStatusesData.lastestBlock=latestBlock;
+        await eventReplayStatusesData.save({ session });
 
-    let latestTimeCheck=await timeDiff();
-    if (latestTimeCheck)
+        if(eventReplayStatusData == null)
+        {
+          let newInstance = new eventReplayStatusModel({
+            id: "0",
+            eventsReplayStatus: "PROGRESS",
+          });
+          await eventReplayStatusModel.create([newInstance],{ session });
+        }
+        else{
+          eventReplayStatusData.eventsReplayStatus="PROGRESS";
+          await eventReplayStatusData.save({ session });
+        }
+        
+        //committing the transaction 
+        await session.commitTransaction();
+
+        // Ending the session
+        session.endSession();
+      }
+      else{
+        if(eventReplayStatusesData == null)
+        {
+          let newInstance = new eventsReplayStatusesModel({
+            id: "0",
+            timeForEventsReplay:iseventsReplay,
+            lastBlockForEventsReplay:null,
+            lastestBlock:null
+          });
+          await eventsReplayStatusesModel.create(newInstance);
+        }
+        else{
+          eventReplayStatusesData.timeForEventsReplay=iseventsReplay;
+          await eventReplayStatusesData.save();
+        }
+      }
+
+    }
+
+    eventReplayStatusesData= await eventsReplayStatusesModel.findOne({id:"0"});
+
+    iseventsReplay=eventReplayStatusesData.timeForEventsReplay;
+    lastBlock = eventReplayStatusesData.lastBlockForEventsReplay;
+    latestBlock = eventReplayStatusesData.lastestBlock;
+
+    let latestTimeCheck=await calculatingServerShutdownTime();
+    if (latestTimeCheck == true)
     {
       latestBlock= await fetchLatestBlockHeightHelper();
       console.log("Latest Block height is : ",latestBlock);
-      await redis.client.SET(process.env.LASTESTBLOCK,latestBlock.toString());
+      eventReplayStatusesData.lastestBlock=latestBlock;
+      await eventReplayStatusesData.save();
     }
+
     console.log("iseventsReplay: ",iseventsReplay);
     console.log("lastBlock: ",lastBlock);
 
-    if(iseventsReplay == "true" && (lastBlock != null && lastBlock != "null") )
+    if(iseventsReplay == true && lastBlock != null)
     {
       console.log("Starting Events Reply...");
 
-      fetchBlocksAndDeploysData(parseInt(lastBlock),parseInt(latestBlock))
+      fetchBlocksAndDeploysData(lastBlock,latestBlock)
       .then(async function (response) {
         console.log("Fetching Blocks and Deploys Data Successfull...");
       })
@@ -1026,14 +1073,14 @@ async function checkIfEventsMissed()
       });
 
       let interval=setInterval(() => {
-        pushEventsToKafka(process.env.LISTENERREDISEVENTSREPLAYQUEUE);
+        popAndProcessEventsFromRedisQueue(process.env.LISTENERREDISEVENTSREPLAYQUEUE);
       }, 2000);
 
-      await addPackageHashes();
+      await findPackageHashesAndUpdateArray();
       console.log("packagesHashes :", PackageHashes);
       contractsPackageHashes =PackageHashes.map((h) => h.toLowerCase());
 
-      filterEventsReplayModel(parseInt(lastBlock),parseInt(latestBlock))
+      filterEventsReplayModel(lastBlock,latestBlock)
       .then(async function (response) {
         let eventsReplayresult=response;
         if(eventsReplayresult=="eventsReplayCompleted"){
@@ -1045,10 +1092,12 @@ async function checkIfEventsMissed()
             await sleep(2000);
           }
           clearInterval(interval);
-          await redis.client.SET(process.env.EVENTSREPLAYSTATUS,"DONE");
+          eventReplayStatusData= await eventReplayStatusModel.findOne({id:"0"});
+          eventReplayStatusData.eventsReplayStatus="DONE";
+          await eventReplayStatusData.save();
           console.log("Popping and Producing EventStream Events... ");
           setInterval(() => {
-            pushEventsToKafka(process.env.LISTENERREDISQUEUE);
+            popAndProcessEventsFromRedisQueue(process.env.LISTENERREDISQUEUE);
           }, 2000);
           }
       })
@@ -1058,10 +1107,12 @@ async function checkIfEventsMissed()
     }
     else{
       setInterval(() => {
-        pushEventsToKafka(process.env.LISTENERREDISQUEUE);
+        popAndProcessEventsFromRedisQueue(process.env.LISTENERREDISQUEUE);
       }, 2000);
     }
   } catch (error) {
+    // Rollback any changes made in the database
+    await session.abortTransaction();
     throw error;
   }
 }
