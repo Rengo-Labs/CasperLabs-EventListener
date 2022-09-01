@@ -21,7 +21,7 @@ async function produceEvents(data)
     try {
         //connection a producer
         await producer.connect();
-        const responses = await producer.send({
+        await producer.send({
           topic: process.env.TOPIC,
           messages: [{
             // The message value is just bytes to Kafka, so we need to serialize our JavaScript

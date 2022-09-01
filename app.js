@@ -35,6 +35,9 @@ const specs = swaggerJsDoc(options);
 
 var app = express();
 
+// Database Connection
+require("./dbConnection");
+
 app.use("/api-docs", swaggerUI.serve, swaggerUI.setup(specs));
 
 // view engine setup
@@ -47,23 +50,6 @@ app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
-
-// Database Connection
-var DB_URL;
-
-DB_URL = process.env.DATABASE_URL_ONLINE;
-console.log("DB_URL : " + DB_URL);
-
-const connect = mongoose.connect(DB_URL);
-// connecting to the database
-connect.then(
-  (db) => {
-    console.log("Connected to the MongoDB server\n\n");
-  },
-  (err) => {
-    console.log(err);
-  }
-);
 
 //Defining all routes
 app.use('/', indexRouter);
