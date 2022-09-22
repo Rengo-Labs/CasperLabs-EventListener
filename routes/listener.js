@@ -961,7 +961,7 @@ async function calculatingServerShutdownTime()
     let currentDate = new Date().getTime();
     console.log("LatestTime: ",currentDate);
     let diff=currentDate-timeAtShutDown;
-   
+
     if(diff > process.env.TTL && timeAtShutDown!= null){
       console.log("Time Difference is greater than 25 minutes..");
       return true;
@@ -974,13 +974,16 @@ async function calculatingServerShutdownTime()
     throw error;
   }
 }
+
+const transactionOptions = {
+  readPreference: 'primary',
+  readConcern: { level: 'local' },
+  writeConcern: { w: 'majority' }
+};
+
 //This function is to syncUp both EventStream and EventsReplay Features
 async function checkIfEventsMissed()
 {
-  const session = await mongoose.startSession();
-  //starting the transaction
-  session.startTransaction();
-
   try {
 
     let iseventsReplay,lastBlock,latestBlock; 
@@ -992,36 +995,42 @@ async function checkIfEventsMissed()
       iseventsReplay=await calculatingServerShutdownTime();
       if(iseventsReplay == true )
       { 
-       
-        eventReplayStatusesData.timeForEventsReplay=iseventsReplay;
+        const session = await mongoose.startSession();
+        try {
+          await session.withTransaction(async () => {
+            eventReplayStatusesData.timeForEventsReplay=iseventsReplay;
+    
+            lastBlock= await fetchLastBlockHeightHelper();
+            console.log("lastBlock height is : ",lastBlock);
+            eventReplayStatusesData.lastBlockForEventsReplay=lastBlock;
+         
+            latestBlock= await fetchLatestBlockHeightHelper();
+            console.log("Latest Block height is : ",latestBlock);
+            eventReplayStatusesData.lastestBlock=latestBlock;
+            await eventReplayStatusesData.save({ session });
+    
+            if(eventReplayStatusData == null)
+            {
+              let newInstance = new eventReplayStatusModel({
+                id: "0",
+                eventsReplayStatus: "PROGRESS",
+              });
+              await eventReplayStatusModel.create([newInstance],{ session });
+            }
+            else{
+              eventReplayStatusData.eventsReplayStatus="PROGRESS";
+              await eventReplayStatusData.save({ session });
+            }
+    
+          },transactionOptions);
 
-        lastBlock= await fetchLastBlockHeightHelper();
-        console.log("lastBlock height is : ",lastBlock);
-        eventReplayStatusesData.lastBlockForEventsReplay=lastBlock;
-     
-        latestBlock= await fetchLatestBlockHeightHelper();
-        console.log("Latest Block height is : ",latestBlock);
-        eventReplayStatusesData.lastestBlock=latestBlock;
-        await eventReplayStatusesData.save({ session });
-
-        if(eventReplayStatusData == null)
-        {
-          let newInstance = new eventReplayStatusModel({
-            id: "0",
-            eventsReplayStatus: "PROGRESS",
-          });
-          await eventReplayStatusModel.create([newInstance],{ session });
+        } catch (error) {
+          console.log("error: ",error);
         }
-        else{
-          eventReplayStatusData.eventsReplayStatus="PROGRESS";
-          await eventReplayStatusData.save({ session });
+        finally{
+          // Ending the session
+          await session.endSession();
         }
-        
-        //committing the transaction 
-        await session.commitTransaction();
-
-        // Ending the session
-        session.endSession();
       }
       else{
         if(eventReplayStatusesData == null)
@@ -1111,8 +1120,6 @@ async function checkIfEventsMissed()
       }, 2000);
     }
   } catch (error) {
-    // Rollback any changes made in the database
-    await session.abortTransaction();
     throw error;
   }
 }
