@@ -1050,9 +1050,6 @@ async function checkIfEventsMissed() {
     ) {
       iseventsReplay = await calculatingServerShutdownTime();
       if (iseventsReplay == true) {
-        const session = await mongoose.startSession();
-        try {
-          await session.withTransaction(async () => {
             eventReplayStatusesData.timeForEventsReplay = iseventsReplay;
 
             lastBlock = await fetchLastBlockHeightHelper();
@@ -1062,26 +1059,30 @@ async function checkIfEventsMissed() {
             latestBlock = await fetchLatestBlockHeightHelper();
             console.log("Latest Block height is : ", latestBlock);
             eventReplayStatusesData.lastestBlock = latestBlock;
-            await eventReplayStatusesData.save({ session });
+            const session = await mongoose.startSession();
+            try {
+              await session.withTransaction(async () => {  
+                await eventReplayStatusesData.save({ session });
 
-            if (eventReplayStatusData == null) {
-              let newInstance = new eventReplayStatusModel({
-                id: "0",
-                eventsReplayStatus: "PROGRESS",
-              });
-              await eventReplayStatusModel.create([newInstance], { session });
-            } else {
-              eventReplayStatusData.eventsReplayStatus = "PROGRESS";
-              await eventReplayStatusData.save({ session });
+                if (eventReplayStatusData == null) {
+                  let newInstance = new eventReplayStatusModel({
+                    id: "0",
+                    eventsReplayStatus: "PROGRESS",
+                  });
+                  await newInstance.save({ session });
+                } else {
+                  eventReplayStatusData.eventsReplayStatus = "PROGRESS";
+                  await eventReplayStatusData.save({ session });
+                }
+              }, transactionOptions);
+            
+            } catch (error) {
+              console.log("error: ", error);
+              throw error;
+            } finally {
+              // Ending the session
+              await session.endSession();
             }
-          }, transactionOptions);
-        } catch (error) {
-          console.log("error: ", error);
-          throw error;
-        } finally {
-          // Ending the session
-          await session.endSession();
-        }
       } else {
         if (eventReplayStatusesData == null) {
           let newInstance = new eventsReplayStatusesModel({
