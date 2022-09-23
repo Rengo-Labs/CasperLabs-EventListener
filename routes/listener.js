@@ -970,7 +970,10 @@ async function filterEventsReplayModel(lastBlock, latestBlock) {
                       console.log("Data: ", acc[0].eventsdata);
 
                       //push event to redis queue
-                      redis.client.RPUSH(process.env.LISTENERREDISEVENTSREPLAYQUEUE,serialize({obj: acc[0]}));
+                      redis.client.RPUSH(
+                        process.env.LISTENERREDISEVENTSREPLAYQUEUE,
+                        serialize({ obj: acc[0] })
+                      );
                     } else {
                       console.log("This is not our contract's event.");
                     }
@@ -1014,7 +1017,7 @@ async function calculatingServerShutdownTime() {
     let currentDate = new Date().getTime();
     console.log("LatestTime: ", currentDate);
     let diff = currentDate - timeAtShutDown;
-   
+
     if (diff > process.env.TTL && timeAtShutDown != null) {
       console.log("Time Difference is greater than 25 minutes..");
       return true;
@@ -1050,39 +1053,38 @@ async function checkIfEventsMissed() {
     ) {
       iseventsReplay = await calculatingServerShutdownTime();
       if (iseventsReplay == true) {
-            eventReplayStatusesData.timeForEventsReplay = iseventsReplay;
+        eventReplayStatusesData.timeForEventsReplay = iseventsReplay;
 
-            lastBlock = await fetchLastBlockHeightHelper();
-            console.log("lastBlock height is : ", lastBlock);
-            eventReplayStatusesData.lastBlockForEventsReplay = lastBlock;
+        lastBlock = await fetchLastBlockHeightHelper();
+        console.log("lastBlock height is : ", lastBlock);
+        eventReplayStatusesData.lastBlockForEventsReplay = lastBlock;
 
-            latestBlock = await fetchLatestBlockHeightHelper();
-            console.log("Latest Block height is : ", latestBlock);
-            eventReplayStatusesData.lastestBlock = latestBlock;
-            const session = await mongoose.startSession();
-            try {
-              await session.withTransaction(async () => {  
-                await eventReplayStatusesData.save({ session });
+        latestBlock = await fetchLatestBlockHeightHelper();
+        console.log("Latest Block height is : ", latestBlock);
+        eventReplayStatusesData.lastestBlock = latestBlock;
+        const session = await mongoose.startSession();
+        try {
+          await session.withTransaction(async () => {
+            await eventReplayStatusesData.save({ session });
 
-                if (eventReplayStatusData == null) {
-                  let newInstance = new eventReplayStatusModel({
-                    id: "0",
-                    eventsReplayStatus: "PROGRESS",
-                  });
-                  await newInstance.save({ session });
-                } else {
-                  eventReplayStatusData.eventsReplayStatus = "PROGRESS";
-                  await eventReplayStatusData.save({ session });
-                }
-              }, transactionOptions);
-            
-            } catch (error) {
-              console.log("error: ", error);
-              throw error;
-            } finally {
-              // Ending the session
-              await session.endSession();
+            if (eventReplayStatusData == null) {
+              let newInstance = new eventReplayStatusModel({
+                id: "0",
+                eventsReplayStatus: "PROGRESS",
+              });
+              await newInstance.save({ session });
+            } else {
+              eventReplayStatusData.eventsReplayStatus = "PROGRESS";
+              await eventReplayStatusData.save({ session });
             }
+          }, transactionOptions);
+        } catch (error) {
+          console.log("error: ", error);
+          throw error;
+        } finally {
+          // Ending the session
+          await session.endSession();
+        }
       } else {
         if (eventReplayStatusesData == null) {
           let newInstance = new eventsReplayStatusesModel({
