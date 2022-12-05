@@ -1039,8 +1039,6 @@ const transactionOptions = {
 
 const replayEventsFromLastBlock = async () => {
   try {
-    
-    
     // let iseventsReplay, lastBlock, latestBlock;
     let eventReplayStatusesData = await manualEventReplayStatuses.findOne({status : "PROGRESS"});
 
@@ -1111,6 +1109,10 @@ const replayEventsFromLastBlock = async () => {
           });
         });
         }
+    }else{
+      setInterval(() => {
+        popAndProcessEventsFromRedisQueue(process.env.LISTENERREDISQUEUE);
+      }, 2000);
     }
   } catch (error) {
     console.log("error (try-catch) : " + error);
