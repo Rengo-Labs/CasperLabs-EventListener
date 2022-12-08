@@ -290,7 +290,7 @@ async function popAndProcessEventsFromRedisQueue(queue) {
                 "Event is in pending status in database, produce in kafka..."
               );
               //produce read Event to kafka
-              await produceInKafka(deserializedHeadValue);
+              await produceInKafka(deserializedHeadValue,eventResult);
             }
           }
         }
@@ -317,7 +317,7 @@ async function getLatestBlockHeight(retry) {
   try {
     const interval = setTimeout(function () {
       retry.rpcNotResponded = true;
-      console.log("RPC not responded for block: ", height);
+      console.log("RPC not responded for block");
     }, 30000);
 
     let flag = 0;
@@ -393,7 +393,7 @@ async function getLastBlockHeight(retry) {
     } else {
       const interval = setTimeout(function () {
         retry.rpcNotResponded = true;
-        console.log("RPC not responded for block: ", height);
+        console.log("RPC not responded for block");
       }, 30000);
 
       let flag = 0;
