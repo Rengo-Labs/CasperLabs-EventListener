@@ -22,6 +22,7 @@ var eventsDataModel = require("../models/eventsData");
 var eventsReplayDataModel = require("../models/eventsReplayData");
 var eventReplayStatusModel = require("../models/eventReplayStatus");
 var eventsReplayStatusesModel = require("../models/eventsReplayStatuses");
+var manualEventReplayStatuses = require("../models/manualEventReplayStatuses");
 
 //seting up kafka
 //setting up a producer
@@ -1036,6 +1037,93 @@ const transactionOptions = {
   writeConcern: { w: "majority" },
 };
 
+const replayEventsFromLastBlock = async () => {
+  try {
+    // let iseventsReplay, lastBlock, latestBlock;
+    let eventReplayStatusesData = await manualEventReplayStatuses.findOne({status : "PROGRESS"});
+
+    if (
+      eventReplayStatusesData !== null &&
+      eventReplayStatusesData.replayEventsManually == true
+    ) {
+      console.log("Running events manually");
+      let iseventsReplay = eventReplayStatusesData.replayEventsManually;
+      let lastBlock = eventReplayStatusesData.lastBlockForEventsReplay;
+      let latestBlock = eventReplayStatusesData.lastestBlock;
+
+      if (iseventsReplay == true && lastBlock != null) {
+        fetchBlocksAndDeploysData(lastBlock, latestBlock)
+        .then(async function (response) {
+          console.log("Fetching Blocks and Deploys Data Successfull...");
+        })
+        .catch(function (error) {
+          console.log("Error : ", error);
+          return res.status(500).json({
+            success: false,
+            err: error,
+          });
+        });
+    
+        let interval = setInterval(() => {
+          popAndProcessEventsFromRedisQueue(
+            process.env.LISTENERREDISEVENTSREPLAYQUEUE
+          );
+        }, 2000);
+    
+        await findPackageHashesAndUpdateArray();
+        console.log("packagesHashes :", PackageHashes);
+        contractsPackageHashes = PackageHashes.map((h) => h.toLowerCase());
+    
+        filterEventsReplayModel(lastBlock, latestBlock)
+        .then(async function (response) {
+          
+          let eventsReplayresult = response;
+          if (eventsReplayresult == "eventsReplayCompleted") {
+            console.log("EventsReplay Completed... ");
+            let redisLength = await redis.client.LLEN(
+              process.env.LISTENERREDISEVENTSREPLAYQUEUE
+            );
+            while (redisLength != 0) {
+              redisLength = await redis.client.LLEN(
+                process.env.LISTENERREDISEVENTSREPLAYQUEUE
+              );
+              await sleep(2000);
+            }
+            clearInterval(interval);
+
+            eventReplayStatusesData = await manualEventReplayStatuses.findOne({status : "PROGRESS"});
+            eventReplayStatusesData.replayEventsManually = false;
+            eventReplayStatusesData.status = "DONE";
+            await eventReplayStatusesData.save();
+            console.log("Popping and Producing EventStream Events... ");
+            setInterval(() => {
+              popAndProcessEventsFromRedisQueue(process.env.LISTENERREDISQUEUE);
+            }, 2000);
+          }
+        })
+        .catch(function (error) {
+          console.log("Error : ", error);
+          return res.status(500).json({
+            success: false,
+            err: error,
+          });
+        });
+        }
+    }else{
+      setInterval(() => {
+        popAndProcessEventsFromRedisQueue(process.env.LISTENERREDISQUEUE);
+      }, 2000);
+    }
+  } catch (error) {
+    console.log("error (try-catch) : " + error);
+    return res.status(500).json({
+      success: false,
+      err: error,
+    });
+  }
+}
+
+
 //This function is to syncUp both EventStream and EventsReplay Features
 async function checkIfEventsMissed() {
   try {
@@ -1052,6 +1140,7 @@ async function checkIfEventsMissed() {
       eventReplayStatusData.eventsReplayStatus == "DONE"
     ) {
       iseventsReplay = await calculatingServerShutdownTime();
+      
       if (iseventsReplay == true) {
         eventReplayStatusesData.timeForEventsReplay = iseventsReplay;
 
@@ -1171,9 +1260,8 @@ async function checkIfEventsMissed() {
           console.log("Error : ", error);
         });
     } else {
-      setInterval(() => {
-        popAndProcessEventsFromRedisQueue(process.env.LISTENERREDISQUEUE);
-      }, 2000);
+      //Check value for replay event manually. If true we replay the events manually from given last block
+      await replayEventsFromLastBlock();
     }
   } catch (error) {
     throw error;
@@ -1549,4 +1637,41 @@ router
       });
     }
   });
+
+router.route("/replayEventsManually").post(
+  auth.verifyToken, verifyAdmin,
+   async function (req,res,next){
+  try{
+    debugger;
+    const { lastBlock, latestBlock } = req.body;
+    
+    if(!lastBlock || !latestBlock)
+    return res.status(400).send("Please send lastBlock and latestBlock arguments in request.");
+
+    if(typeof(lastBlock) != "number" || typeof(latestBlock) != "number")
+    return res.status(400).send("Arguments lastBlock and latestBlock must be numbers.");
+
+    const eventReplayStatusesData = await manualEventReplayStatuses.findOne({status : "PROGRESS"});
+    if(eventReplayStatusesData == null){
+      await manualEventReplayStatuses.create({
+        lastBlockForEventsReplay : lastBlock,
+        lastestBlock : latestBlock,
+        replayEventsManually : true,
+        status : "PROGRESS"
+      });
+  
+      return res.status(200).send("Successfully setup permission for events replay manually.");
+    }else{
+      return res.status(400).send("Previous manual events replay is in progress. Please try again later.");
+    }
+  }catch(error){
+    console.log("error (try-catch) : " + error);
+    return res.status(500).json({
+      success: false,
+      err: error,
+    });
+  }
+
+})
+
 module.exports = router;
