@@ -12,6 +12,7 @@ const swaggerJsDoc = require("swagger-jsdoc");
 var indexRouter = require('./routes/index');
 var adminRouter = require('./routes/adminroutes');
 var listenerRouter = require('./routes/listener');
+var afterDeploymentRouter = require("./routes/afterdeploymentRoutes");
 
 //swaggerJsDocOptions
 const options = {
@@ -55,6 +56,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/', indexRouter);
 app.use('/', adminRouter);
 app.use('/listener', listenerRouter);
+app.use("/", afterDeploymentRouter);
 
 
 // catch 404 and forward to error handler

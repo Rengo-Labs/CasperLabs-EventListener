@@ -23,6 +23,7 @@ var eventsReplayDataModel = require("../models/eventsReplayData");
 var eventReplayStatusModel = require("../models/eventReplayStatus");
 var eventsReplayStatusesModel = require("../models/eventsReplayStatuses");
 var manualEventReplayStatuses = require("../models/manualEventReplayStatuses");
+var allTokensModel = require("../models/allTokens");
 
 //seting up kafka
 //setting up a producer
@@ -220,6 +221,27 @@ async function produceInKafka(data, eventResult, queue) {
   }
 }
 
+async function checkAndModifyErc20TransferEvent(deserializedHeadValue)
+{
+  if(deserializedHeadValue.eventsdata[0][0].data == undefined)
+  {
+    let checkIfToken=await allTokensModel.findOne({packageHash:deserializedHeadValue.eventsdata[0][1]});
+    if(checkIfToken != null)
+    {
+      deserializedHeadValue.eventName ="erc20_transfer";
+      deserializedHeadValue.eventsdata[1][1]="erc20_transfer";
+    }
+  }
+  else{
+    let checkIfToken=await allTokensModel.findOne({packageHash:deserializedHeadValue.eventsdata[0][1].data});
+    if(checkIfToken != null)
+    {
+      deserializedHeadValue.eventName ="erc20_transfer";
+      deserializedHeadValue.eventsdata[1][1].data ="erc20_transfer";
+    }
+  }
+}
+
 async function popAndProcessEventsFromRedisQueue(queue) {
   try {
     if (queuePopFlag == 0) {
@@ -232,6 +254,12 @@ async function popAndProcessEventsFromRedisQueue(queue) {
         let deserializedHeadValue = deserialize(headValue).obj;
         console.log("Event Read from queue's head: ", deserializedHeadValue);
 
+        //Because our code works for every Contract having different event names
+        if(deserializedHeadValue.eventName == "transfer")
+        { 
+          await checkAndModifyErc20TransferEvent(deserializedHeadValue);
+        }
+        
         //check if event is in the database
         let eventResult = await eventsDataModel.findOne({
           deployHash: deserializedHeadValue.deployHash,
@@ -1211,7 +1239,7 @@ async function checkIfEventsMissed() {
 
     if (iseventsReplay == true && lastBlock != null) {
       console.log("Starting Events Reply...");
-
+ 
       fetchBlocksAndDeploysData(lastBlock, latestBlock)
         .then(async function (response) {
           console.log("Fetching Blocks and Deploys Data Successfull...");
